@@ -84,8 +84,18 @@ interface PrivateNote {
 const bytesToHex = (bytesVal: any): string => {
   if (!bytesVal) return '';
   if (typeof bytesVal === 'string') return bytesVal;
-  const arr = Uint8Array.from(bytesVal);
-  return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
+  try {
+    const arr = Uint8Array.from(bytesVal);
+    return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch (e) {
+    if (bytesVal && typeof bytesVal === 'object') {
+      if ('data' in bytesVal && (Array.isArray(bytesVal.data) || ArrayBuffer.isView(bytesVal.data))) {
+        return Array.from(bytesVal.data).map((b: any) => Number(b).toString(16).padStart(2, '0')).join('');
+      }
+      return bytesVal.toString();
+    }
+    return String(bytesVal);
+  }
 };
 
 const hashOnChain = async (leftBytes: Uint8Array, rightBytes: Uint8Array): Promise<Uint8Array> => {
@@ -333,9 +343,11 @@ export default function App() {
       const latestLedger = await server.getLatestLedger();
       const endLedger = latestLedger.sequence;
       
-      // 2. Scan from endLedger - 15000 (roughly last 24 hours of events)
-      const startLedger = Math.max(1, endLedger - 15000);
+      // 2. Scan from endLedger - 120000 (roughly last 7 days of events)
+      const startLedger = Math.max(1, endLedger - 120000);
       setSyncProgress(`Scanning ledgers ${startLedger} to ${endLedger}...`);
+      
+      console.log(`Syncing notes: scanning ledgers from ${startLedger} to ${endLedger} for contract ${config.whisperContractId}`);
       
       const response = await server.getEvents({
         startLedger,
@@ -348,6 +360,7 @@ export default function App() {
       });
       
       const events = response.events || [];
+      console.log(`Fetched ${events.length} events from blockchain.`);
       setSyncProgress(`Found ${events.length} contract events. Decrypting...`);
       
       const secretKeyBigInt = BigInt("0x" + zkPrivateKey);
@@ -360,21 +373,43 @@ export default function App() {
       for (const event of events) {
         try {
           const topics = (event.topic || []).map(t => scValToNative(xdr.ScVal.fromXDR(t as any, "base64")));
-          const eventType = topics[0];
+          console.log("Raw event topics from blockchain:", topics);
+          
+          const rawEventType = topics[0];
+          let eventType = "";
+          if (typeof rawEventType === 'string') {
+            eventType = rawEventType;
+          } else if (rawEventType && (rawEventType instanceof Uint8Array)) {
+            eventType = new TextDecoder().decode(rawEventType);
+          } else if (rawEventType && typeof rawEventType === 'object') {
+            if (rawEventType.constructor?.name === 'Buffer' || rawEventType.constructor?.name === 'Uint8Array') {
+              eventType = new TextDecoder().decode(Uint8Array.from(rawEventType));
+            } else {
+              eventType = rawEventType.toString();
+            }
+          } else if (rawEventType) {
+            eventType = String(rawEventType);
+          }
+          
+          console.log(`Parsed event type: "${eventType}"`);
           
           if (eventType === "deposit") {
             const commitmentVal = topics[1];
             const commitmentHex = bytesToHex(commitmentVal);
-            allCommitmentsBytes.push(new Uint8Array(commitmentVal));
+            allCommitmentsBytes.push(new Uint8Array(commitmentVal as any));
             
             const data = scValToNative(xdr.ScVal.fromXDR(event.value as any, "base64"));
+            console.log("Deposit event value data:", data);
+            
             const rawAmount = data[0];
-            const amount = Number(rawAmount) / 10000000;
+            const amount = Number(BigInt(rawAmount)) / 10000000;
             const encryptedNoteVal = data[1];
             const hexCiphertext = bytesToHex(encryptedNoteVal);
             
+            console.log(`Decrypting note for commitment ${commitmentHex} with ciphertext length ${hexCiphertext.length}...`);
             const decrypted = await decryptNote(zkPrivateKey, hexCiphertext);
             if (decrypted) {
+              console.log("Successfully decrypted note payload:", decrypted);
               const { nullifier_nonce } = decrypted;
               decryptedNotesMap.set(commitmentHex, {
                 amount,
@@ -384,10 +419,13 @@ export default function App() {
                 txHash: event.txHash || '',
                 timestamp: event.ledgerClosedAt || 'Just now'
               });
+            } else {
+              console.log(`Failed to decrypt note for commitment ${commitmentHex} (belongs to another user's public key)`);
             }
           } else if (eventType === "transfer") {
             const nullifierVal = topics[1];
             const nullifierHex = bytesToHex(nullifierVal);
+            console.log(`Found spent nullifier hash: ${nullifierHex}`);
             spentNullifiers.add(nullifierHex);
           }
         } catch (err) {
