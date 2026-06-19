@@ -349,15 +349,49 @@ export default function App() {
       
       console.log(`Syncing notes: scanning ledgers from ${startLedger} to ${endLedger} for contract ${config.whisperContractId}`);
       
-      const response = await server.getEvents({
-        startLedger,
-        filters: [
-          {
-            contractIds: [config.whisperContractId],
-            type: "contract"
-          }
-        ]
-      });
+      let response;
+      try {
+        response = await server.getEvents({
+          startLedger,
+          filters: [
+            {
+              contractIds: [config.whisperContractId],
+              type: "contract"
+            }
+          ]
+        });
+      } catch (e: any) {
+        const errorMsg = e.message || String(e);
+        console.warn(`Initial event query failed: ${errorMsg}`);
+        // Try to match e.g. "range: 3053410 - 3174369"
+        const match = errorMsg.match(/range:\s*(\d+)/i);
+        if (match && match[1]) {
+          const minLedger = parseInt(match[1], 10);
+          console.log(`Retrying event query with adjusted startLedger: ${minLedger}`);
+          response = await server.getEvents({
+            startLedger: minLedger,
+            filters: [
+              {
+                contractIds: [config.whisperContractId],
+                type: "contract"
+              }
+            ]
+          });
+        } else {
+          // Fallback: try a safe range like 10000 ledgers (roughly 14 hours)
+          console.log(`Failed to parse range from error. Retrying with endLedger - 10000`);
+          const fallbackStart = Math.max(1, endLedger - 10000);
+          response = await server.getEvents({
+            startLedger: fallbackStart,
+            filters: [
+              {
+                contractIds: [config.whisperContractId],
+                type: "contract"
+              }
+            ]
+          });
+        }
+      }
       
       const events = response.events || [];
       console.log(`Fetched ${events.length} events from blockchain.`);
