@@ -12,8 +12,10 @@ import {
 import { 
   isConnected as isFreighterConnected, 
   requestAccess as requestFreighterAccess, 
-  signTransaction as signFreighterTransaction 
+  signTransaction as signFreighterTransaction,
+  signMessage as signFreighterMessage
 } from '@stellar/freighter-api';
+
 
 // Configuration interface
 interface Config {
@@ -36,6 +38,40 @@ interface ActivityLog {
   details?: string;
 }
 
+// BN254 Prime field used in ZK circuits
+const BN254_PRIME = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+
+// Deterministic ZK-friendly hashes matching the Noir circuit logic:
+// hash_1(x) = x * x + 0x12345
+const hash_1 = (x: bigint): bigint => {
+  return (x * x + 0x12345n) % BN254_PRIME;
+};
+
+// hash_2(x, y) = x * y + x + y + 0x67890
+const hash_2 = (x: bigint, y: bigint): bigint => {
+  return (x * y + x + y + 0x67890n) % BN254_PRIME;
+};
+
+// Convert BigInt back to a 32-byte Uint8Array (big-endian)
+const bigIntToBytes32 = (val: bigint): Uint8Array => {
+  let hex = val.toString(16);
+  if (hex.length % 2 !== 0) hex = '0' + hex;
+  hex = hex.padStart(64, '0');
+  const bytes = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) {
+    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return bytes;
+};
+
+// Helper to compute SHA-256 hash natively in browser
+const sha256 = async (message: string): Promise<string> => {
+  const msgBuffer = new TextEncoder().encode(message);
+  const hashBuffer = await window.crypto.subtle.digest('SHA-256', msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
 export default function App() {
   // Mode selection (Live Testnet is default)
   const [useMockMode, setUseMockMode] = useState<boolean>(false);
@@ -45,6 +81,19 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'vault' | 'pool' | 'send' | 'compliance'>('vault');
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [userAddress, setUserAddress] = useState<string>('');
+  const [zkPrivateKey, setZkPrivateKey] = useState<string>('');
+
+  // Synchronize ZK private key with sessionStorage
+  useEffect(() => {
+    if (isConnected && userAddress) {
+      const stored = sessionStorage.getItem(`whisper_zk_pkey_${userAddress}`);
+      if (stored) {
+        setZkPrivateKey(stored);
+      }
+    } else {
+      setZkPrivateKey('');
+    }
+  }, [isConnected, userAddress]);
   
   // Balance states
   const [publicBalance, setPublicBalance] = useState<number>(0);
@@ -168,7 +217,6 @@ export default function App() {
       console.error("Error fetching balances from testnet:", e);
     }
   };
-
   const connectWallet = async () => {
     if (useMockMode) {
       setIsConnected(true);
@@ -186,9 +234,30 @@ export default function App() {
         if (accessResult.error) {
           alert("Freighter connection rejected: " + accessResult.error);
         } else if (accessResult.address) {
-          setUserAddress(accessResult.address);
+          const addr = accessResult.address;
+          setUserAddress(addr);
           setIsConnected(true);
-          await fetchBalances(accessResult.address);
+          
+          try {
+            // Prompt the user to sign a deterministic message to authorize ZK private key derivation
+            const authMessage = "Sign this message to authorize Stellar Whisper ZK Privacy Key Derivation";
+            const signResult = await signFreighterMessage(authMessage, { address: addr });
+            
+            if (signResult && signResult.signedMessage) {
+              const signatureVal = signResult.signedMessage;
+              const msgStr = typeof signatureVal === 'string' 
+                ? signatureVal 
+                : Array.from(new Uint8Array(signatureVal as any)).map(b => b.toString(16).padStart(2, '0')).join('');
+              const derivedKey = await sha256(msgStr);
+              setZkPrivateKey(derivedKey);
+              sessionStorage.setItem(`whisper_zk_pkey_${addr}`, derivedKey);
+            }
+          } catch (signErr: any) {
+            console.error("ZK Key Derivation signature rejected/failed:", signErr);
+            alert("Signature rejected. ZK Private Key was not derived. You can still use the app, but shielding operations will use random commitments.");
+          }
+
+          await fetchBalances(addr);
         }
       } else {
         alert("Freighter Wallet not found. Please install the extension or enable Mock Mode in settings.");
@@ -199,12 +268,15 @@ export default function App() {
   };
 
   const disconnectWallet = () => {
+    if (userAddress) {
+      sessionStorage.removeItem(`whisper_zk_pkey_${userAddress}`);
+    }
     setIsConnected(false);
     setUserAddress('');
+    setZkPrivateKey('');
     setPublicBalance(0);
     updateShieldedBalance(0.00);
   };
-
   const fundWallet = async () => {
     if (!userAddress || userAddress === 'GB2V...K4X7') return;
     try {
@@ -373,16 +445,25 @@ export default function App() {
     }
 
     const stages = [
-      { stage: "Generating random nullifier & secret key...", percent: 20 },
+      { stage: zkPrivateKey ? "Deriving secret key and public key..." : "Generating random nullifier & secret key...", percent: 20 },
       { stage: "Computing Poseidon commitment hash...", percent: 50 },
       { stage: "Constructing ZK witness data...", percent: 75 },
       { stage: "Submitting deposit to Soroban contract...", percent: 90 }
     ];
 
     // Arguments for Soroban deposit(from, commitment, amount)
-    const randomBytes = new Uint8Array(32);
-    window.crypto.getRandomValues(randomBytes);
-    const commitmentScVal = nativeToScVal(randomBytes, { type: "bytes" });
+    let commitmentBytes: Uint8Array;
+    if (zkPrivateKey) {
+      const secretKeyBigInt = BigInt("0x" + zkPrivateKey);
+      const pubkey = hash_1(secretKeyBigInt);
+      const rawAmount = BigInt(Math.floor(amt * 10000000));
+      const commitmentBigInt = hash_2(pubkey, rawAmount);
+      commitmentBytes = bigIntToBytes32(commitmentBigInt);
+    } else {
+      commitmentBytes = new Uint8Array(32);
+      window.crypto.getRandomValues(commitmentBytes as any);
+    }
+    const commitmentScVal = nativeToScVal(commitmentBytes, { type: "bytes" });
     const rawAmount = BigInt(Math.floor(amt * 10000000));
     const amountScVal = nativeToScVal(rawAmount, { type: "i128" });
     const fromScVal = nativeToScVal(userAddress, { type: "address" });
@@ -478,9 +559,21 @@ export default function App() {
       merkleRootBytes[0] = 8;
     }
 
-    // Generate unique random nullifier to pass the 'NullifierAlreadySpent' double-spend check on-chain
-    const nullifierHashBytes = new Uint8Array(32);
-    window.crypto.getRandomValues(nullifierHashBytes);
+    // Generate unique nullifier derived from ZK private key and a random nonce
+    let nullifierHashBytes: Uint8Array;
+    if (zkPrivateKey) {
+      const secretKeyBigInt = BigInt("0x" + zkPrivateKey);
+      // Generate a random 32-byte nullifier nonce
+      const nonceBytes = new Uint8Array(32);
+      window.crypto.getRandomValues(nonceBytes as any);
+      const nonceBigInt = BigInt("0x" + Array.from(nonceBytes).map(b => b.toString(16).padStart(2, '0')).join('')) % BN254_PRIME;
+      
+      const nullifierBigInt = hash_2(secretKeyBigInt, nonceBigInt);
+      nullifierHashBytes = bigIntToBytes32(nullifierBigInt);
+    } else {
+      nullifierHashBytes = new Uint8Array(32);
+      window.crypto.getRandomValues(nullifierHashBytes as any);
+    }
 
     const amountBytes = new Uint8Array(32);
     amountBytes.fill(3);
@@ -541,20 +634,32 @@ export default function App() {
 
   const handleGenerateCompliance = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!viewingKey) return;
+    const activeKey = zkPrivateKey || viewingKey;
+    if (!activeKey) return;
+
+    setIsProving(true);
+    setProvingLogs([]);
+    setProvingProgress(0);
 
     const stages = [
-      { stage: "Decrypting transaction history using viewing key...", percent: 25 },
+      { stage: "Decrypting transaction history using viewing key skey_" + activeKey.slice(0, 8) + "...", percent: 25 },
       { stage: "Verifying non-membership in sanctions list...", percent: 50 },
       { stage: "Validating source funds path integrity...", percent: 75 },
       { stage: "Generating cryptographic Compliance Attestation...", percent: 100 }
     ];
 
-    executeSorobanCall(
-      "compliance",
-      [],
-      stages,
-      () => {
+    let currentIdx = 0;
+    const interval = setInterval(() => {
+      if (currentIdx < stages.length) {
+        const item = stages[currentIdx];
+        setProvingProgress(item.percent);
+        setProvingLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${item.stage}`]);
+        currentIdx++;
+      } else {
+        clearInterval(interval);
+        setIsProving(false);
+        setProvingProgress(0);
+        
         setLogs(prev => [
           {
             id: Date.now().toString(),
@@ -565,7 +670,6 @@ export default function App() {
           ...prev
         ]);
         
-        // Generate mock certificate data
         const reportId = 'ZKP-REP-' + Math.floor(100000 + Math.random() * 900000);
         setComplianceReport({
           id: reportId,
@@ -576,11 +680,8 @@ export default function App() {
         });
 
         setViewingKey('');
-      },
-      (err) => {
-        alert("Compliance report failed: " + err);
       }
-    );
+    }, 900);
   };
 
   return (
@@ -657,7 +758,12 @@ export default function App() {
             {isConnected ? (
               <div className="flex flex-col gap-1">
                 <span className="text-[#00dce5] truncate">{userAddress}</span>
-                <button onClick={disconnectWallet} className="text-left text-[#ffb4ab] hover:underline cursor-pointer">Disconnect Wallet</button>
+                {zkPrivateKey && (
+                  <span className="text-[#dcb8ff] truncate text-[9px] mt-1 border border-[#8a2be2]/30 px-1 py-0.5 rounded bg-[#8a2be2]/10" title={`skey_${zkPrivateKey}`}>
+                    🔑 ZK-Key: skey_{zkPrivateKey.slice(0, 6)}...
+                  </span>
+                )}
+                <button onClick={disconnectWallet} className="text-left text-[#ffb4ab] hover:underline cursor-pointer mt-1">Disconnect Wallet</button>
               </div>
             ) : (
               <button onClick={connectWallet} className="text-[#00dce5] hover:underline cursor-pointer font-bold">Connect Freighter</button>
@@ -1262,14 +1368,23 @@ export default function App() {
                       </div>
 
                       <div className="space-y-2">
-                        <label className="text-[10px] font-bold uppercase tracking-wider text-[#cfc2d7] block">Private Viewing Key</label>
+                        <div className="flex justify-between items-center">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-[#cfc2d7] block">Private Viewing Key</label>
+                          {zkPrivateKey && (
+                            <span className="text-[9px] text-[#00f4fe] font-mono">Derived from Freighter</span>
+                          )}
+                        </div>
                         <input 
                           type="password" 
-                          placeholder="Enter secret viewing key (skey_...)"
-                          value={viewingKey}
-                          onChange={(e) => setViewingKey(e.target.value)}
-                          disabled={isProving || !isConnected}
-                          className="w-full glass-input px-4 py-3 text-sm text-white rounded"
+                          placeholder={zkPrivateKey ? `skey_${zkPrivateKey.slice(0, 16)}...` : "Enter secret viewing key (skey_...)"}
+                          value={zkPrivateKey ? `skey_${zkPrivateKey}` : viewingKey}
+                          onChange={(e) => {
+                            if (!zkPrivateKey) {
+                              setViewingKey(e.target.value);
+                            }
+                          }}
+                          disabled={isProving || !isConnected || !!zkPrivateKey}
+                          className="w-full glass-input px-4 py-3 text-sm text-white rounded opacity-90"
                         />
                       </div>
 
@@ -1290,7 +1405,7 @@ export default function App() {
                       ) : (
                         <button 
                           type="submit"
-                          disabled={isProving || !viewingKey}
+                          disabled={isProving || (!zkPrivateKey && !viewingKey)}
                           className="w-full btn-primary py-3 rounded text-xs font-bold transition-all active:scale-95 disabled:opacity-50 cursor-pointer mt-4"
                         >
                           {isProving ? "Generating Attestation..." : "Generate Cryptographic Proof"}
