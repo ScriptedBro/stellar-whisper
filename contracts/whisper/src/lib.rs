@@ -69,7 +69,7 @@ impl Contract {
     }
 
     /// Deposit public stablecoins into the pool and register the commitment.
-    pub fn deposit(env: Env, from: Address, commitment: BytesN<32>, amount: i128) -> Result<BytesN<32>, ContractError> {
+    pub fn deposit(env: Env, from: Address, commitment: BytesN<32>, amount: i128, encrypted_note: Bytes) -> Result<BytesN<32>, ContractError> {
         from.require_auth();
 
         if !env.storage().instance().has(&DataKey::Admin) {
@@ -89,7 +89,7 @@ impl Contract {
         let next_index: u32 = env.storage().instance().get(&DataKey::NextIndex).unwrap();
         let mut filled_subtrees: Vec<BytesN<32>> = env.storage().instance().get(&DataKey::FilledSubtrees).unwrap();
 
-        let mut current_level_hash = commitment;
+        let mut current_level_hash = commitment.clone();
         let mut index = next_index;
 
         for i in 0..TREE_DEPTH {
@@ -114,6 +114,12 @@ impl Contract {
         let new_root = current_level_hash;
         env.storage().persistent().set(&DataKey::Roots(new_root.clone()), &true);
 
+        // Publish deposit event with commitment and the encrypted note payload
+        env.events().publish(
+            (Symbol::new(&env, "deposit"), commitment),
+            (amount, encrypted_note)
+        );
+
         Ok(new_root)
     }
 
@@ -124,6 +130,7 @@ impl Contract {
         public_inputs: Vec<BytesN<32>>,
         recipient: Address,
         amount: i128,
+        encrypted_note: Bytes,
     ) -> Result<(), ContractError> {
         if !env.storage().instance().has(&DataKey::Admin) {
             return Err(ContractError::NotInitialized);
@@ -164,12 +171,18 @@ impl Contract {
         }
 
         // 4. Mark the nullifier as spent
-        env.storage().persistent().set(&DataKey::Nullifiers(nullifier_hash), &true);
+        env.storage().persistent().set(&DataKey::Nullifiers(nullifier_hash.clone()), &true);
 
         // 5. Transfer funds to the recipient
         let token_addr: Address = env.storage().instance().get(&DataKey::Token).unwrap();
         let token_client = soroban_sdk::token::Client::new(&env, &token_addr);
         token_client.transfer(&env.current_contract_address(), &recipient, &amount);
+
+        // Publish transfer/withdraw event with nullifier hash, recipient, amount and encrypted note
+        env.events().publish(
+            (Symbol::new(&env, "transfer"), nullifier_hash),
+            (amount, encrypted_note)
+        );
 
         Ok(())
     }

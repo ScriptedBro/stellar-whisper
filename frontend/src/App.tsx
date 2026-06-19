@@ -72,6 +72,134 @@ const sha256 = async (message: string): Promise<string> => {
   return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 };
 
+interface PrivateNote {
+  amount: number;
+  nullifierNonce: string; // Hex string (without 0x)
+  commitment: string;     // Hex string (without 0x)
+  spent: boolean;
+  txHash?: string;
+  timestamp?: string;
+}
+
+const bytesToHex = (bytesVal: any): string => {
+  if (!bytesVal) return '';
+  if (typeof bytesVal === 'string') return bytesVal;
+  const arr = Uint8Array.from(bytesVal);
+  return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
+const hashOnChain = async (leftBytes: Uint8Array, rightBytes: Uint8Array): Promise<Uint8Array> => {
+  const combined = new Uint8Array(64);
+  combined.set(leftBytes, 0);
+  combined.set(rightBytes, 32);
+  const hashBuffer = await window.crypto.subtle.digest('SHA-256', combined);
+  return new Uint8Array(hashBuffer);
+};
+
+const getOnChainZeroHash = (level: number): Uint8Array => {
+  const bytes = new Uint8Array(32);
+  bytes[0] = level;
+  return bytes;
+};
+
+const computeLatestMerkleRootOnChain = async (allCommitmentsBytes: Uint8Array[]): Promise<string> => {
+  const TREE_DEPTH = 8;
+  
+  let filledSubtrees: Uint8Array[] = [];
+  for (let i = 0; i < TREE_DEPTH; i++) {
+    filledSubtrees.push(getOnChainZeroHash(i));
+  }
+  
+  let latestRoot = getOnChainZeroHash(TREE_DEPTH);
+  
+  for (let nextIndex = 0; nextIndex < allCommitmentsBytes.length; nextIndex++) {
+    let currentLevelHash = allCommitmentsBytes[nextIndex];
+    let index = nextIndex;
+    
+    for (let i = 0; i < TREE_DEPTH; i++) {
+      if (index % 2 === 1) {
+        const left = filledSubtrees[i];
+        currentLevelHash = await hashOnChain(left, currentLevelHash);
+      } else {
+        filledSubtrees[i] = currentLevelHash;
+        const right = getOnChainZeroHash(i);
+        currentLevelHash = await hashOnChain(currentLevelHash, right);
+      }
+      index = Math.floor(index / 2);
+    }
+    latestRoot = currentLevelHash;
+  }
+  
+  return Array.from(latestRoot).map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
+const deriveEncryptionKey = async (zkPrivateKeyHex: string): Promise<CryptoKey> => {
+  const rawKeyMaterial = new TextEncoder().encode(zkPrivateKeyHex);
+  const baseKey = await window.crypto.subtle.importKey(
+    'raw',
+    rawKeyMaterial,
+    { name: 'HKDF' },
+    false,
+    ['deriveKey']
+  );
+  
+  return await window.crypto.subtle.deriveKey(
+    {
+      name: 'HKDF',
+      salt: new TextEncoder().encode('stellar-whisper-salt'),
+      info: new TextEncoder().encode('note-encryption'),
+      hash: 'SHA-256'
+    },
+    baseKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+};
+
+const encryptNote = async (zkPrivateKeyHex: string, noteData: object): Promise<string> => {
+  const key = await deriveEncryptionKey(zkPrivateKeyHex);
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+  const plaintext = new TextEncoder().encode(JSON.stringify(noteData));
+  
+  const ciphertextBuffer = await window.crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    plaintext
+  );
+  
+  const ciphertextBytes = new Uint8Array(ciphertextBuffer);
+  const combined = new Uint8Array(iv.length + ciphertextBytes.length);
+  combined.set(iv, 0);
+  combined.set(ciphertextBytes, iv.length);
+  
+  return Array.from(combined).map(b => b.toString(16).padStart(2, '0')).join('');
+};
+
+const decryptNote = async (zkPrivateKeyHex: string, hexCiphertext: string): Promise<any | null> => {
+  try {
+    const key = await deriveEncryptionKey(zkPrivateKeyHex);
+    const bytes = new Uint8Array(hexCiphertext.length / 2);
+    for (let i = 0; i < bytes.length; i++) {
+      bytes[i] = parseInt(hexCiphertext.slice(i * 2, i * 2 + 2), 16);
+    }
+    
+    const iv = bytes.slice(0, 12);
+    const ciphertext = bytes.slice(12);
+    
+    const decryptedBuffer = await window.crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv },
+      key,
+      ciphertext
+    );
+    
+    const plaintext = new TextDecoder().decode(decryptedBuffer);
+    return JSON.parse(plaintext);
+  } catch (e) {
+    return null;
+  }
+};
+
 export default function App() {
   // Mode selection (Live Testnet is default)
   const [useMockMode, setUseMockMode] = useState<boolean>(false);
@@ -109,23 +237,205 @@ export default function App() {
     });
   };
 
-  // Synchronize shielded balance on connect/disconnect
+  // Note Store states
+  const [notes, setNotes] = useState<PrivateNote[]>([]);
+  const [selectedNoteCommitment, setSelectedNoteCommitment] = useState<string>('');
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [syncProgress, setSyncProgress] = useState<string>('');
+
+  // Load notes from localStorage on wallet connection
   useEffect(() => {
     if (isConnected && userAddress) {
+      const stored = localStorage.getItem(`whisper_notes_${userAddress}`);
+      if (stored) {
+        try {
+          const parsedNotes = JSON.parse(stored);
+          setNotes(parsedNotes);
+          const unspent = parsedNotes.filter((n: any) => !n.spent);
+          if (unspent.length > 0) {
+            setSelectedNoteCommitment(unspent[0].commitment);
+            setTransferAmount(unspent[0].amount.toString());
+          }
+        } catch (e) {
+          console.error("Failed to parse stored notes:", e);
+          setNotes([]);
+        }
+      } else {
+        setNotes([]);
+      }
+    } else {
+      setNotes([]);
+    }
+  }, [isConnected, userAddress]);
+
+  // Synchronize shielded balance to the sum of active unspent note balances
+  useEffect(() => {
+    if (notes.length > 0) {
+      const unspentSum = notes
+        .filter(n => !n.spent)
+        .reduce((sum, n) => sum + n.amount, 0);
+      updateShieldedBalance(unspentSum);
+    } else if (isConnected && userAddress) {
       const key = `whisper_shielded_balance_${userAddress}`;
       const stored = localStorage.getItem(key);
       if (stored !== null) {
         setShieldedBalance(Number(stored));
       } else {
-        // Initialize new wallet with a default 100.00 USDC shielding balance for immediate hackathon testing
-        setShieldedBalance(100.00);
-        localStorage.setItem(key, '100.00');
+        setShieldedBalance(0.00);
+      }
+    }
+  }, [notes, isConnected, userAddress]);
+
+  // Auto-sync notes from blockchain on login/ZK Key Derivation
+  useEffect(() => {
+    if (isConnected && userAddress && zkPrivateKey && !useMockMode) {
+      syncNotesFromChain();
+    }
+  }, [isConnected, userAddress, zkPrivateKey, useMockMode]);
+
+  // Selection synchronization helper
+  useEffect(() => {
+    const unspent = notes.filter(n => !n.spent);
+    if (unspent.length > 0) {
+      const found = unspent.find(n => n.commitment === selectedNoteCommitment);
+      if (!found) {
+        setSelectedNoteCommitment(unspent[0].commitment);
+        setTransferAmount(unspent[0].amount.toString());
       }
     } else {
-      setShieldedBalance(0.00);
+      setSelectedNoteCommitment('');
+      setTransferAmount('');
     }
-  }, [isConnected, userAddress]);
-  
+  }, [notes, selectedNoteCommitment]);
+
+  const handleNoteChange = (commitment: string) => {
+    setSelectedNoteCommitment(commitment);
+    const note = notes.find(n => n.commitment === commitment);
+    if (note) {
+      setTransferAmount(note.amount.toString());
+    }
+  };
+
+  const syncNotesFromChain = async () => {
+    if (!isConnected || !userAddress || !zkPrivateKey) {
+      alert("Please connect your wallet and derive your ZK private key first.");
+      return;
+    }
+    
+    setIsSyncing(true);
+    setSyncProgress('Connecting to Soroban RPC...');
+    
+    try {
+      const server = new rpc.Server("https://soroban-testnet.stellar.org");
+      
+      // 1. Get latest ledger
+      setSyncProgress('Fetching latest ledger sequence...');
+      const latestLedger = await server.getLatestLedger();
+      const endLedger = latestLedger.sequence;
+      
+      // 2. Scan from endLedger - 15000 (roughly last 24 hours of events)
+      const startLedger = Math.max(1, endLedger - 15000);
+      setSyncProgress(`Scanning ledgers ${startLedger} to ${endLedger}...`);
+      
+      const response = await server.getEvents({
+        startLedger,
+        filters: [
+          {
+            contractIds: [config.whisperContractId],
+            type: "contract"
+          }
+        ]
+      });
+      
+      const events = response.events || [];
+      setSyncProgress(`Found ${events.length} contract events. Decrypting...`);
+      
+      const secretKeyBigInt = BigInt("0x" + zkPrivateKey);
+      
+      const decryptedNotesMap = new Map<string, PrivateNote>();
+      const spentNullifiers = new Set<string>();
+      const allCommitmentsBytes: Uint8Array[] = [];
+      
+      // Pass 1: Parse and decrypt deposits and find spent nullifiers
+      for (const event of events) {
+        try {
+          const topics = (event.topic || []).map(t => scValToNative(xdr.ScVal.fromXDR(t as any, "base64")));
+          const eventType = topics[0];
+          
+          if (eventType === "deposit") {
+            const commitmentVal = topics[1];
+            const commitmentHex = bytesToHex(commitmentVal);
+            allCommitmentsBytes.push(new Uint8Array(commitmentVal));
+            
+            const data = scValToNative(xdr.ScVal.fromXDR(event.value as any, "base64"));
+            const rawAmount = data[0];
+            const amount = Number(rawAmount) / 10000000;
+            const encryptedNoteVal = data[1];
+            const hexCiphertext = bytesToHex(encryptedNoteVal);
+            
+            const decrypted = await decryptNote(zkPrivateKey, hexCiphertext);
+            if (decrypted) {
+              const { nullifier_nonce } = decrypted;
+              decryptedNotesMap.set(commitmentHex, {
+                amount,
+                nullifierNonce: nullifier_nonce,
+                commitment: commitmentHex,
+                spent: false,
+                txHash: event.txHash || '',
+                timestamp: event.ledgerClosedAt || 'Just now'
+              });
+            }
+          } else if (eventType === "transfer") {
+            const nullifierVal = topics[1];
+            const nullifierHex = bytesToHex(nullifierVal);
+            spentNullifiers.add(nullifierHex);
+          }
+        } catch (err) {
+          console.error("Failed to parse event:", err);
+        }
+      }
+      
+      // Update spent status by checking calculated nullifiers of our decrypted notes
+      const finalNotes: PrivateNote[] = [];
+      for (const note of decryptedNotesMap.values()) {
+        const nonceBigInt = BigInt("0x" + note.nullifierNonce);
+        const nullifierBigInt = hash_2(secretKeyBigInt, nonceBigInt);
+        const nullifierHex = bytesToHex(bigIntToBytes32(nullifierBigInt));
+        
+        if (spentNullifiers.has(nullifierHex)) {
+          note.spent = true;
+        }
+        finalNotes.push(note);
+      }
+      
+      // Compute latest Merkle root and save it
+      if (allCommitmentsBytes.length > 0) {
+        const rootHex = await computeLatestMerkleRootOnChain(allCommitmentsBytes);
+        localStorage.setItem(`whisper_latest_root_${userAddress}`, rootHex);
+      } else {
+        const defaultRootBytes = getOnChainZeroHash(8);
+        const defaultRootHex = Array.from(defaultRootBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+        localStorage.setItem(`whisper_latest_root_${userAddress}`, defaultRootHex);
+      }
+      
+      // Save notes to state and localStorage
+      setNotes(finalNotes);
+      localStorage.setItem(`whisper_notes_${userAddress}`, JSON.stringify(finalNotes));
+      
+      const activeNotes = finalNotes.filter(n => !n.spent);
+      const unspentSum = activeNotes.reduce((sum, n) => sum + n.amount, 0);
+      updateShieldedBalance(unspentSum);
+      
+      setSyncProgress(`Sync complete! Recovered ${finalNotes.length} notes (${activeNotes.length} unspent).`);
+      setTimeout(() => setSyncProgress(''), 5000);
+    } catch (err: any) {
+      console.error("Error syncing events:", err);
+      setSyncProgress(`Sync failed: ${err.message || String(err)}`);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   // Form input states
   const [depositAmount, setDepositAmount] = useState<string>('');
   const [recipientAddress, setRecipientAddress] = useState<string>('');
@@ -434,7 +744,7 @@ export default function App() {
     }
   };
 
-  const handleShieldDeposit = (e: React.FormEvent) => {
+  const handleShieldDeposit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!depositAmount || isNaN(Number(depositAmount))) return;
     
@@ -447,33 +757,61 @@ export default function App() {
     const stages = [
       { stage: zkPrivateKey ? "Deriving secret key and public key..." : "Generating random nullifier & secret key...", percent: 20 },
       { stage: "Computing Poseidon commitment hash...", percent: 50 },
-      { stage: "Constructing ZK witness data...", percent: 75 },
+      { stage: "Constructing ZK witness data & encrypting note...", percent: 75 },
       { stage: "Submitting deposit to Soroban contract...", percent: 90 }
     ];
 
-    // Arguments for Soroban deposit(from, commitment, amount)
+    // Arguments for Soroban deposit(from, commitment, amount, encrypted_note)
     let commitmentBytes: Uint8Array;
+    let nullifierNonceHex = '';
+    let encryptedPayloadHex = '';
+
     if (zkPrivateKey) {
       const secretKeyBigInt = BigInt("0x" + zkPrivateKey);
       const pubkey = hash_1(secretKeyBigInt);
       const rawAmount = BigInt(Math.floor(amt * 10000000));
       const commitmentBigInt = hash_2(pubkey, rawAmount);
       commitmentBytes = bigIntToBytes32(commitmentBigInt);
+
+      // Generate a random 32-byte nullifier nonce
+      const nonceBytes = new Uint8Array(32);
+      window.crypto.getRandomValues(nonceBytes as any);
+      const nonceBigInt = BigInt("0x" + Array.from(nonceBytes).map(b => b.toString(16).padStart(2, '0')).join('')) % BN254_PRIME;
+      nullifierNonceHex = nonceBigInt.toString(16).padStart(64, '0');
+
+      // Encrypt the ZK private key and nullifier nonce
+      const note = {
+        secret_key: zkPrivateKey,
+        nullifier_nonce: nullifierNonceHex
+      };
+      
+      try {
+        encryptedPayloadHex = await encryptNote(zkPrivateKey, note);
+      } catch (err) {
+        console.error("Encryption failed:", err);
+      }
     } else {
       commitmentBytes = new Uint8Array(32);
       window.crypto.getRandomValues(commitmentBytes as any);
     }
+
     const commitmentScVal = nativeToScVal(commitmentBytes, { type: "bytes" });
     const rawAmount = BigInt(Math.floor(amt * 10000000));
     const amountScVal = nativeToScVal(rawAmount, { type: "i128" });
     const fromScVal = nativeToScVal(userAddress, { type: "address" });
+
+    // Encrypted note bytes
+    const encryptedNoteBytes = encryptedPayloadHex 
+      ? new Uint8Array(encryptedPayloadHex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16))) 
+      : new Uint8Array(0);
+    const encryptedNoteScVal = nativeToScVal(encryptedNoteBytes, { type: "bytes" });
 
     // Switch to pool tab to see the immersive circular animation!
     setActiveTab('pool');
 
     executeSorobanCall(
       "deposit",
-      [fromScVal, commitmentScVal, amountScVal],
+      [fromScVal, commitmentScVal, amountScVal, encryptedNoteScVal],
       stages,
       async (txHash, txResult) => {
         if (useMockMode) {
@@ -492,8 +830,25 @@ export default function App() {
           } catch (e) {
             console.error("Failed to parse returned Merkle root:", e);
           }
+          
+          // Save the decrypted note locally in state & localStorage
+          if (zkPrivateKey && nullifierNonceHex) {
+            const newNote: PrivateNote = {
+              amount: amt,
+              nullifierNonce: nullifierNonceHex,
+              commitment: bytesToHex(commitmentBytes),
+              spent: false,
+              txHash: txHash || '',
+              timestamp: new Date().toLocaleTimeString()
+            };
+            setNotes(prev => {
+              const updated = [...prev, newNote];
+              localStorage.setItem(`whisper_notes_${userAddress}`, JSON.stringify(updated));
+              return updated;
+            });
+          }
+
           await fetchBalances(userAddress);
-          updateShieldedBalance(prev => prev + amt); 
         }
         setLogs(prev => [
           {
@@ -559,14 +914,26 @@ export default function App() {
       merkleRootBytes[0] = 8;
     }
 
-    // Generate unique nullifier derived from ZK private key and a random nonce
+    // Generate unique nullifier derived from ZK private key and the note's nonce
     let nullifierHashBytes: Uint8Array;
+    let targetNoteCommitment = selectedNoteCommitment;
+    
     if (zkPrivateKey) {
+      // Find the note being spent
+      let noteToSpend = notes.find(n => n.commitment === selectedNoteCommitment && !n.spent);
+      if (!noteToSpend) {
+        // Fall back to first unspent note matching the amount, or any unspent note
+        noteToSpend = notes.find(n => !n.spent);
+      }
+      
+      if (!noteToSpend) {
+        alert("No unspent shielded notes available. Please shield assets first.");
+        return;
+      }
+      
+      targetNoteCommitment = noteToSpend.commitment;
       const secretKeyBigInt = BigInt("0x" + zkPrivateKey);
-      // Generate a random 32-byte nullifier nonce
-      const nonceBytes = new Uint8Array(32);
-      window.crypto.getRandomValues(nonceBytes as any);
-      const nonceBigInt = BigInt("0x" + Array.from(nonceBytes).map(b => b.toString(16).padStart(2, '0')).join('')) % BN254_PRIME;
+      const nonceBigInt = BigInt("0x" + noteToSpend.nullifierNonce);
       
       const nullifierBigInt = hash_2(secretKeyBigInt, nonceBigInt);
       nullifierHashBytes = bigIntToBytes32(nullifierBigInt);
@@ -590,14 +957,24 @@ export default function App() {
     const recipientScVal = nativeToScVal(recipientAddress, { type: "address" });
     const rawAmount = BigInt(Math.floor(amt * 10000000));
     const amountScVal = nativeToScVal(rawAmount, { type: "i128" });
+    const encryptedNoteScVal = nativeToScVal(new Uint8Array(0), { type: "bytes" });
 
     executeSorobanCall(
       "transfer_or_withdraw",
-      [dummyProof, publicInputsScVal, recipientScVal, amountScVal],
+      [dummyProof, publicInputsScVal, recipientScVal, amountScVal, encryptedNoteScVal],
       stages,
       async (txHash) => {
-        updateShieldedBalance(prev => prev - amt);
-        if (!useMockMode) {
+        if (useMockMode) {
+          updateShieldedBalance(prev => prev - amt);
+        } else {
+          // Mark the spent note as spent locally
+          if (targetNoteCommitment) {
+            setNotes(prev => {
+              const updated = prev.map(n => n.commitment === targetNoteCommitment ? { ...n, spent: true } : n);
+              localStorage.setItem(`whisper_notes_${userAddress}`, JSON.stringify(updated));
+              return updated;
+            });
+          }
           await fetchBalances(userAddress);
         }
         setLogs(prev => [
@@ -907,19 +1284,38 @@ export default function App() {
                     </div>
                   </div>
                   
-                  <div className="flex gap-4">
-                    <button 
-                      onClick={() => setActiveTab('send')}
-                      className="flex-1 btn-primary py-3 rounded text-xs transition-transform active:scale-95 border-none cursor-pointer"
-                    >
-                      Withdraw / Send
-                    </button>
-                    <button 
-                      onClick={() => setActiveTab('pool')}
-                      className="flex-1 glass-action py-3 rounded text-xs transition-all cursor-pointer"
-                    >
-                      Deposit / Shield
-                    </button>
+                  <div className="flex flex-col gap-3">
+                    <div className="flex gap-4">
+                      <button 
+                        onClick={() => setActiveTab('send')}
+                        className="flex-1 btn-primary py-3 rounded text-xs transition-transform active:scale-95 border-none cursor-pointer"
+                      >
+                        Withdraw / Send
+                      </button>
+                      <button 
+                        onClick={() => setActiveTab('pool')}
+                        className="flex-1 glass-action py-3 rounded text-xs transition-all cursor-pointer"
+                      >
+                        Deposit / Shield
+                      </button>
+                    </div>
+                    {isConnected && !useMockMode && (
+                      <div className="flex flex-col gap-2">
+                        <button 
+                          onClick={syncNotesFromChain}
+                          disabled={isSyncing}
+                          className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded bg-white/5 border border-white/10 hover:bg-white/10 text-xs text-[#00f4fe] font-mono cursor-pointer transition-all active:scale-95 disabled:opacity-50"
+                        >
+                          <span className={`material-symbols-outlined text-xs ${isSyncing ? 'animate-spin' : ''}`}>sync</span>
+                          {isSyncing ? "Syncing Notes Store..." : "Sync Notes From Blockchain"}
+                        </button>
+                        {syncProgress && (
+                          <div className="text-[10px] font-mono text-[#cfc2d7] bg-black/40 px-3 py-1.5 rounded border border-[#00f4fe]/20 animate-fade-in">
+                            {syncProgress}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1076,6 +1472,57 @@ export default function App() {
                     </div>
                     <h4 className="font-bold text-sm text-white mb-1">Private Swap</h4>
                     <p className="text-xs text-[#cfc2d7] leading-relaxed">High-speed slippage-free swaps with obscured paths.</p>
+                  </div>
+                </div>
+
+                {/* Active Shielded Notes Registry */}
+                <div className="glass-panel p-5 rounded-lg glass-inner-stroke mt-6">
+                  <div className="flex items-center justify-between mb-4 pb-2 border-b border-white/10">
+                    <h3 className="font-bold text-sm text-white flex items-center gap-1.5 font-sans">
+                      <span className="material-symbols-outlined text-sm text-[#00f4fe]">receipt_long</span>
+                      Active Shielded Notes Registry
+                    </h3>
+                    <span className="text-[9px] font-mono text-[#cfc2d7] bg-white/5 px-2 py-0.5 rounded border border-white/10">
+                      {notes.filter(n => !n.spent).length} Active Notes
+                    </span>
+                  </div>
+
+                  <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1">
+                    {notes.length === 0 ? (
+                      <div className="text-center py-6 text-[#cfc2d7] text-xs">
+                        No shielded notes detected on-chain. Deposits or transfers will automatically generate notes.
+                      </div>
+                    ) : (
+                      notes.map((note) => (
+                        <div 
+                          key={note.commitment} 
+                          className={`p-3 rounded border text-xs transition-all ${
+                            note.spent 
+                              ? 'bg-red-950/10 border-red-500/10 opacity-50' 
+                              : 'bg-green-950/10 border-green-500/20 hover:border-green-500/40'
+                          }`}
+                        >
+                          <div className="flex justify-between items-start mb-1.5">
+                            <span className="font-bold text-white font-mono">{note.amount.toFixed(2)} USDC</span>
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${
+                              note.spent 
+                                ? 'bg-red-500/20 text-red-400' 
+                                : 'bg-green-500/20 text-green-400'
+                            }`}>
+                              {note.spent ? 'Spent' : 'Unspent'}
+                            </span>
+                          </div>
+                          <div className="font-mono text-[9px] text-[#cfc2d7] flex flex-col gap-0.5">
+                            <div className="truncate" title={note.commitment}>
+                              <span className="text-[#00dce5]">Commitment:</span> {note.commitment.slice(0, 16)}...
+                            </div>
+                            <div className="truncate" title={note.nullifierNonce}>
+                              <span className="text-[#dcb8ff]">Nonce:</span> {note.nullifierNonce.slice(0, 16)}...
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
               </div>
@@ -1247,6 +1694,26 @@ export default function App() {
 
                 <form onSubmit={handleShieldedTransfer} className="space-y-4">
                   <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-[#cfc2d7] block">Select Shielded Note to Spend</label>
+                    <select
+                      value={selectedNoteCommitment}
+                      onChange={(e) => handleNoteChange(e.target.value)}
+                      disabled={isProving || !isConnected || notes.filter(n => !n.spent).length === 0}
+                      className="w-full glass-input px-4 py-3 text-sm text-white rounded bg-black/60 border border-white/10"
+                    >
+                      {notes.filter(n => !n.spent).length === 0 ? (
+                        <option value="">No unspent notes found - shield assets first</option>
+                      ) : (
+                        notes.filter(n => !n.spent).map(note => (
+                          <option key={note.commitment} value={note.commitment} className="bg-[#110022]">
+                            {note.amount.toFixed(2)} USDC Note (Commitment: {note.commitment.slice(0, 8)}...)
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
                     <label className="text-[10px] font-bold uppercase tracking-wider text-[#cfc2d7] block">Recipient Stellar Address</label>
                     <input 
                       type="text" 
@@ -1260,14 +1727,13 @@ export default function App() {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-[#cfc2d7] block">Amount (USDC)</label>
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-[#cfc2d7] block">Amount to Spend (USDC)</label>
                       <input 
                         type="number" 
-                        placeholder="Enter amount, e.g. 50"
+                        placeholder="Populated from selected note"
                         value={transferAmount}
-                        onChange={(e) => setTransferAmount(e.target.value)}
-                        disabled={isProving || !isConnected}
-                        className="w-full glass-input px-4 py-3 text-sm text-white rounded"
+                        disabled={true}
+                        className="w-full glass-input px-4 py-3 text-sm text-white/70 rounded bg-white/5 cursor-not-allowed"
                       />
                     </div>
                     

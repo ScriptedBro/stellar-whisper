@@ -45,7 +45,7 @@ fn test_whisper_flow() {
 
     // Perform a deposit
     let commitment = BytesN::from_array(&env, &[1u8; 32]);
-    let root = whisper_client.deposit(&user, &commitment, &deposit_amount);
+    let root = whisper_client.deposit(&user, &commitment, &deposit_amount, &Bytes::new(&env));
 
     // Verify token balances after deposit
     assert_eq!(token_client.balance(&user), 0);
@@ -60,7 +60,7 @@ fn test_whisper_flow() {
     public_inputs.push_back(BytesN::from_array(&env, &[0u8; 32])); // public_inputs[2]: amount dummy
     public_inputs.push_back(BytesN::from_array(&env, &[0u8; 32])); // public_inputs[3]: recipient dummy
 
-    whisper_client.transfer_or_withdraw(&mock_proof, &public_inputs, &recipient, &deposit_amount);
+    whisper_client.transfer_or_withdraw(&mock_proof, &public_inputs, &recipient, &deposit_amount, &Bytes::new(&env));
 
     // Verify final balances
     assert_eq!(token_client.balance(&whisper_contract_id), 0);

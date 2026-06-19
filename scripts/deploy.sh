@@ -41,6 +41,8 @@ echo "Step 3b: Deploying USDC Token Asset Contract..."
 TOKEN_ID=$(stellar contract asset deploy \
   --asset USDC:$ADMIN_ADDRESS \
   --source $ADMIN_KEY \
+  --network $NETWORK 2>/dev/null || stellar contract id asset \
+  --asset USDC:$ADMIN_ADDRESS \
   --network $NETWORK)
 echo "✅ USDC Token Asset Contract Deployed! ID: $TOKEN_ID"
 
