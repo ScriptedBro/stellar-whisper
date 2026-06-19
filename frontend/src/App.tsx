@@ -471,17 +471,25 @@ export default function App() {
 
   // Deployment configuration
   const [config, setConfig] = useState<Config>({
-    network: 'testnet',
-    adminAddress: 'GD42PB2CL44DBKQUMM7Q2I7AHVOXVTZOVQCC4ZYRGONHSZKLISA6WQMD',
-    tokenContractId: 'CCD7B5ENZPTMYOB7XZ6VYLCABAQ66TB4UY5BEAQWCZMHMNAXPWKBKXYR',
-    verifierContractId: 'CC7OCYUBUTVZMZP2I32VVQPND35O5OEWPLPMP46NYKX264VV4HR23DWK',
-    whisperContractId: 'CDC6IKBVX5LDA3GB2DAEZLA6NAPDNJKVSWSFBPL4PLFOE7WKMUUBZR5I'
+    network: import.meta.env.VITE_NETWORK || 'testnet',
+    adminAddress: import.meta.env.VITE_ADMIN_ADDRESS || 'GD42PB2CL44DBKQUMM7Q2I7AHVOXVTZOVQCC4ZYRGONHSZKLISA6WQMD',
+    tokenContractId: import.meta.env.VITE_TOKEN_CONTRACT_ID || 'CCD7B5ENZPTMYOB7XZ6VYLCABAQ66TB4UY5BEAQWCZMHMNAXPWKBKXYR',
+    verifierContractId: import.meta.env.VITE_VERIFIER_CONTRACT_ID || 'CDFENQOFMV5Q5EQ5E5LRK3SAXS37L5KDT4NRGVY32LVWLQGXGFRDEA2H',
+    whisperContractId: import.meta.env.VITE_WHISPER_CONTRACT_ID || 'CDQP7Q2WDYHLJ6M4RU45U6HEBQWNMNZEES7YJFI755ZC6IDIVKSTF4L2'
   });
 
   useEffect(() => {
-    // Load deployed contract config
+    // Load deployed contract config and merge with local environment overrides
     import('./config/deployed.json')
-      .then((data) => setConfig(data.default))
+      .then((data) => {
+        setConfig({
+          network: import.meta.env.VITE_NETWORK || data.default.network || 'testnet',
+          adminAddress: import.meta.env.VITE_ADMIN_ADDRESS || data.default.adminAddress || 'GD42PB2CL44DBKQUMM7Q2I7AHVOXVTZOVQCC4ZYRGONHSZKLISA6WQMD',
+          tokenContractId: import.meta.env.VITE_TOKEN_CONTRACT_ID || data.default.tokenContractId || 'CCD7B5ENZPTMYOB7XZ6VYLCABAQ66TB4UY5BEAQWCZMHMNAXPWKBKXYR',
+          verifierContractId: import.meta.env.VITE_VERIFIER_CONTRACT_ID || data.default.verifierContractId || 'CDFENQOFMV5Q5EQ5E5LRK3SAXS37L5KDT4NRGVY32LVWLQGXGFRDEA2H',
+          whisperContractId: import.meta.env.VITE_WHISPER_CONTRACT_ID || data.default.whisperContractId || 'CDQP7Q2WDYHLJ6M4RU45U6HEBQWNMNZEES7YJFI755ZC6IDIVKSTF4L2'
+        });
+      })
       .catch(() => {});
   }, []);
 
