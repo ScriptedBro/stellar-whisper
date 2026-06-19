@@ -1,0 +1,22 @@
+# Target directories
+target/
+/target
+
+# Node modules
+node_modules/
+/frontend/node_modules/
+
+# Build output
+/frontend/dist/
+
+# Local config / keys
+.soroban/
+.stellar/
+.agent/
+.gemini/
+
+# Ignore all markdown files except README.md
+*.md
+!README.md
+!readme.md
+!Readme.md

@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Stellar Whisper | Celestial Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&amp;family=Inter:wght@400;500&amp;family=Space+Mono:wght@400;700&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&amp;family=Plus+Jakarta+Sans:wght@100..900&amp;family=Space+Mono:wght@100..900&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container-low": "#191c22",
+                        "inverse-surface": "#e1e2eb",
+                        "on-tertiary": "#5e0053",
+                        "inverse-primary": "#8422dc",
+                        "on-error": "#690005",
+                        "secondary": "#e6feff",
+                        "primary-fixed-dim": "#dcb8ff",
+                        "on-tertiary-fixed": "#3a0033",
+                        "surface-container-highest": "#32353c",
+                        "secondary-fixed-dim": "#00dce5",
+                        "outline": "#988ca0",
+                        "secondary-fixed": "#63f7ff",
+                        "tertiary": "#fface8",
+                        "surface-dim": "#10131a",
+                        "tertiary-fixed": "#ffd7f0",
+                        "surface-variant": "#32353c",
+                        "on-primary": "#480081",
+                        "on-background": "#e1e2eb",
+                        "outline-variant": "#4c4354",
+                        "on-secondary": "#003739",
+                        "surface-container-high": "#272a31",
+                        "on-secondary-container": "#006c71",
+                        "inverse-on-surface": "#2e3037",
+                        "surface-container-lowest": "#0b0e14",
+                        "on-surface": "#e1e2eb",
+                        "on-secondary-fixed-variant": "#004f53",
+                        "surface-bright": "#363940",
+                        "on-secondary-fixed": "#002021",
+                        "surface": "#10131a",
+                        "on-tertiary-container": "#ffd5f0",
+                        "error-container": "#93000a",
+                        "primary": "#dcb8ff",
+                        "secondary-container": "#00f4fe",
+                        "primary-container": "#8a2be2",
+                        "on-tertiary-fixed-variant": "#840076",
+                        "on-primary-fixed": "#2c0051",
+                        "error": "#ffb4ab",
+                        "on-surface-variant": "#cfc2d7",
+                        "background": "#10131a",
+                        "on-error-container": "#ffdad6",
+                        "primary-fixed": "#efdbff",
+                        "on-primary-container": "#eed9ff",
+                        "surface-tint": "#dcb8ff",
+                        "tertiary-container": "#b600a3",
+                        "tertiary-fixed-dim": "#fface8",
+                        "surface-container": "#1d2026",
+                        "on-primary-fixed-variant": "#6700b5"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-max": "1200px",
+                        "stack-md": "16px",
+                        "stack-sm": "8px",
+                        "gutter": "24px",
+                        "margin-desktop": "40px",
+                        "stack-lg": "32px",
+                        "margin-mobile": "16px"
+                    },
+                    "fontFamily": {
+                        "headline-lg-mobile": ["Plus Jakarta Sans"],
+                        "body-lg": ["Inter"],
+                        "headline-lg": ["Plus Jakarta Sans"],
+                        "label-sm": ["Space Mono"],
+                        "label-md": ["Space Mono"],
+                        "headline-md": ["Plus Jakarta Sans"],
+                        "body-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-lg-mobile": ["32px", {"lineHeight": "38px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "body-lg": ["18px", {"lineHeight": "28px", "fontWeight": "400"}],
+                        "headline-lg": ["40px", {"lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "label-sm": ["12px", {"lineHeight": "16px", "letterSpacing": "0.1em", "fontWeight": "500"}],
+                        "label-md": ["14px", {"lineHeight": "20px", "letterSpacing": "0.05em", "fontWeight": "500"}],
+                        "headline-md": ["24px", {"lineHeight": "32px", "fontWeight": "600"}],
+                        "body-md": ["16px", {"lineHeight": "24px", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            background-color: #0b0e14;
+            color: #e1e2eb;
+            overflow-x: hidden;
+        }
+
+        .glass-panel {
+            backdrop-filter: blur(12px);
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid transparent;
+            border-image: linear-gradient(135deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.05)) 1;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        .glass-inner-stroke {
+            position: relative;
+        }
+        .glass-inner-stroke::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            padding: 1px;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0));
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            pointer-events: none;
+        }
+
+        .cyber-glow {
+            box-shadow: 0 0 20px rgba(0, 245, 255, 0.3);
+        }
+
+        .privacy-pulse {
+            position: relative;
+        }
+        .privacy-pulse::before {
+            content: "";
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: #8a2be2;
+            border-radius: 50%;
+            animation: pulse-ring 3s cubic-bezier(0.455, 0.03, 0.515, 0.955) infinite;
+        }
+
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 0.5; }
+            50% { transform: scale(1.2); opacity: 0.1; }
+            100% { transform: scale(0.8); opacity: 0.5; }
+        }
+
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        
+        .bento-grid {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 24px;
+        }
+
+        @media (max-width: 1024px) {
+            .bento-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body class="font-body-md text-body-md selection:bg-secondary-fixed-dim/30">
+<!-- Cosmic Background -->
+
+<div class="flex min-h-screen">
+<!-- Side Navigation (Shared Component Logic) -->
+<aside class="hidden md:flex flex-col h-screen w-64 fixed left-0 top-0 bg-white/3 backdrop-blur-2xl border-r border-white/10 py-8 px-4 z-50">
+<div class="flex items-center gap-3 mb-12 px-2">
+<div class="w-8 h-8 rounded-lg bg-primary-container flex items-center justify-center cyber-glow">
+<span class="material-symbols-outlined text-white text-[18px]">auto_awesome</span>
+</div>
+<div>
+<h1 class="font-headline-md text-headline-md font-bold text-secondary-container leading-none">Whisper Node</h1>
+<p class="text-label-sm font-label-sm text-secondary-fixed-dim/70 mt-1 uppercase tracking-widest">Shielded Session</p>
+</div>
+</div>
+<nav class="flex-1 space-y-2">
+<!-- Vault Active (Intent-based mapping for Dashboard) -->
+<a class="flex items-center gap-3 px-4 py-3 bg-white/10 text-secondary-fixed-dim border-l-4 border-secondary-fixed-dim transition-transform active:translate-x-1 group" href="#">
+<span class="material-symbols-outlined group-hover:scale-110 transition-transform">shield</span>
+<span class="font-label-md text-label-md">Vault</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-white/5 hover:text-on-surface transition-all active:translate-x-1 group" href="#">
+<span class="material-symbols-outlined group-hover:scale-110 transition-transform">waves</span>
+<span class="font-label-md text-label-md">Pool</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-white/5 hover:text-on-surface transition-all active:translate-x-1 group" href="#">
+<span class="material-symbols-outlined group-hover:scale-110 transition-transform">receipt_long</span>
+<span class="font-label-md text-label-md">Activity</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-white/5 hover:text-on-surface transition-all active:translate-x-1 group" href="#">
+<span class="material-symbols-outlined group-hover:scale-110 transition-transform">verified_user</span>
+<span class="font-label-md text-label-md">Compliance</span>
+</a>
+</nav>
+<div class="mt-auto pt-8 border-t border-white/5 space-y-2">
+<button class="w-full bg-primary-container text-on-primary-container py-3 rounded-xl font-bold flex items-center justify-center gap-2 mb-6 cyber-glow active:scale-95 transition-all">
+<span class="material-symbols-outlined">add</span>
+                    New Transaction
+                </button>
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:text-on-surface transition-all text-label-sm" href="#">
+<span class="material-symbols-outlined text-[18px]">lock</span>
+<span>Security</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2 text-on-surface-variant hover:text-on-surface transition-all text-label-sm" href="#">
+<span class="material-symbols-outlined text-[18px]">help_outline</span>
+<span>Support</span>
+</a>
+</div>
+</aside>
+<!-- Main Canvas -->
+<main class="flex-1 md:ml-64 p-margin-mobile md:p-margin-desktop min-h-screen">
+<!-- Top App Bar Content -->
+<header class="flex items-center justify-between mb-stack-lg">
+<div>
+<h2 class="font-headline-lg text-headline-lg font-extrabold tracking-tighter text-white">Stellar Whisper</h2>
+<p class="text-on-surface-variant font-body-md mt-1">Universal Privacy Layer for Decentralized Finance</p>
+</div>
+<div class="flex items-center gap-stack-md">
+<div class="flex items-center gap-2 px-4 py-2 bg-white/5 backdrop-blur-xl border border-white/10 rounded-full">
+<div class="w-2 h-2 rounded-full bg-secondary-fixed-dim privacy-pulse"></div>
+<span class="text-label-sm font-label-sm text-secondary-fixed-dim">NETWORK: ENCRYPTED</span>
+</div>
+<button class="p-2 bg-white/5 hover:bg-white/10 rounded-lg transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant">notifications</span>
+</button>
+<div class="w-10 h-10 rounded-full border-2 border-primary-container overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="A high-quality 3D portrait of a futuristic cosmic entity, shimmering with ethereal light, against a backdrop of deep space nebulas. The avatar wears a translucent visor and glowy patterns on their skin, reflecting the 'Celestial Fintech' aesthetic of the Stellar Whisper brand." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCFpnG6ZZCPA543SNHf3tKSElAm6dbX9RSA8eKy-fgoAlZexY_ViRlT48vGehcThPgfd4I73Wg499bv8oqvRP1rjh1z6tb2r-5jd1-IlRSPUMZCHf7bhmbu-HFZZHxNrKagdGkE-0u5IphZlqELB3-K3osBwVUq0wKRD1Y10kzOHPDe6hB0sCkaajxSFlvbsH2sXcQ5uLumoh-EIKCEN1ExWwZMqM-O9VEe3L0NIUx4kO_SMi8tAaxgOg"/>
+</div>
+</div>
+</header>
+<!-- Bento Grid Dashboard -->
+<div class="bento-grid">
+<!-- Shielded Balance Hero Card (Col 1-8) -->
+<div class="col-span-12 lg:col-span-8 glass-panel rounded-[2rem] p-8 flex flex-col md:flex-row items-center gap-8 glass-inner-stroke overflow-hidden">
+<div class="absolute top-0 right-0 w-64 h-64 bg-primary-container/20 blur-[100px] pointer-events-none"></div>
+<div class="relative w-full md:w-1/2 aspect-square flex items-center justify-center">
+<img alt="Shielded Balance" class="w-full h-full object-contain drop-shadow-[0_0_40px_rgba(138,43,226,0.4)]" src="https://lh3.googleusercontent.com/aida/AP1WRLuco44RSccZB4olzOd8Jyq2NVWhFsXpTjO0MNowBwYze66qy8XBes7V3xpYX1R3dCz8xvl9f-fmHVyvUDY9rhd2VXL9ND8JklnoE-X7vcU_LQSR2OUxid5GnnH1Em9fqjdTcJ3IBlIPJNg92x8boCWowJMn5-Gk5ncZvj1ZprekaeAsFSTmhtEgQDlbZJAiBpSiJblTVZVl0sD_CZ0B2z9njTQ8PTDR33vfNd7N6T--HUOdYcalOrW8EUVH"/>
+</div>
+<div class="w-full md:w-1/2 flex flex-col justify-center">
+<div class="inline-flex items-center gap-2 text-label-md font-label-md text-secondary-fixed-dim mb-4">
+<span class="material-symbols-outlined text-[16px]" style="font-variation-settings: 'FILL' 1;">lock</span>
+                            PRIVATE ASSET VAULT
+                        </div>
+<h3 class="font-headline-lg text-headline-lg text-white mb-2">Shielded Balance</h3>
+<div class="flex items-baseline gap-2 mb-6">
+<span class="text-5xl font-bold tracking-tight text-white">42,890.15</span>
+<span class="text-2xl font-headline-md text-secondary-fixed-dim">XLM</span>
+</div>
+<div class="grid grid-cols-2 gap-4 mb-8">
+<div class="p-4 rounded-2xl bg-white/5 border border-white/10">
+<p class="text-label-sm font-label-sm text-on-surface-variant mb-1 uppercase">Staking APY</p>
+<p class="text-headline-md font-headline-md text-tertiary">12.4% <span class="text-label-sm font-label-sm">↑</span></p>
+</div>
+<div class="p-4 rounded-2xl bg-white/5 border border-white/10">
+<p class="text-label-sm font-label-sm text-on-surface-variant mb-1 uppercase">Privacy Level</p>
+<p class="text-headline-md font-headline-md text-secondary-container">Maximum</p>
+</div>
+</div>
+<div class="flex gap-4">
+<button class="flex-1 bg-secondary-container text-on-secondary-container py-4 rounded-xl font-bold cyber-glow transition-transform active:scale-95">Withdraw</button>
+<button class="flex-1 bg-white/5 border border-white/20 py-4 rounded-xl font-bold backdrop-blur-md hover:bg-white/10 transition-all">Deposit</button>
+</div>
+</div>
+</div>
+<!-- Invisible Pool Stats (Col 9-12) -->
+<div class="col-span-12 lg:col-span-4 glass-panel rounded-[2rem] p-6 glass-inner-stroke flex flex-col bg-surface-container-high/40">
+<div class="flex items-center justify-between mb-6">
+<h3 class="font-headline-md text-headline-md text-white">Invisible Pool</h3>
+<span class="material-symbols-outlined text-secondary-fixed-dim">analytics</span>
+</div>
+<div class="space-y-6 flex-1">
+<div>
+<div class="flex justify-between text-label-md mb-2">
+<span class="text-on-surface-variant">Pool TVL</span>
+<span class="text-white font-bold">$1.42B</span>
+</div>
+<div class="h-2 bg-white/10 rounded-full overflow-hidden">
+<div class="h-full bg-primary-container w-[72%] shadow-[0_0_10px_#8a2be2]"></div>
+</div>
+</div>
+<div class="grid grid-cols-1 gap-3">
+<div class="p-4 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between">
+<div>
+<p class="text-label-sm text-on-surface-variant">24h Volume</p>
+<p class="text-body-lg font-bold">$18.2M</p>
+</div>
+<span class="text-secondary-fixed-dim text-label-sm">+4.2%</span>
+</div>
+<div class="p-4 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between">
+<div>
+<p class="text-label-sm text-on-surface-variant">Anonymity Set</p>
+<p class="text-body-lg font-bold">18,402</p>
+</div>
+<span class="material-symbols-outlined text-secondary-fixed-dim text-[16px]">verified</span>
+</div>
+</div>
+</div>
+<button class="mt-8 w-full py-3 text-label-md font-bold text-secondary-fixed-dim hover:text-white transition-colors flex items-center justify-center gap-2">
+                        View Detailed Metrics
+                        <span class="material-symbols-outlined text-[18px]">arrow_forward</span>
+</button>
+</div>
+<!-- Recent Private Activity (Col 1-7) -->
+<div class="col-span-12 lg:col-span-7 glass-panel rounded-[2rem] p-8 glass-inner-stroke">
+<div class="flex items-center justify-between mb-8">
+<h3 class="font-headline-md text-headline-md text-white">Recent Private Activity</h3>
+<span class="text-label-sm font-label-sm text-on-surface-variant cursor-pointer hover:text-white transition-colors">EXPORT LOGS</span>
+</div>
+<div class="space-y-3">
+<!-- Transaction Row -->
+<div class="flex items-center justify-between p-4 rounded-2xl bg-white/3 border border-white/5 group hover:bg-white/8 transition-all">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-xl bg-secondary-container/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-secondary-container">swap_horiz</span>
+</div>
+<div>
+<p class="font-bold text-white">Shielded Swap</p>
+<p class="text-label-sm text-on-surface-variant">USDC → XLM • 2h ago</p>
+</div>
+</div>
+<div class="text-right flex items-center gap-4">
+<div>
+<p class="font-bold text-white">+1,200.00 XLM</p>
+<p class="text-label-sm text-secondary-fixed-dim font-bold">CONFIRMED</p>
+</div>
+<button class="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-label-sm font-bold border border-white/10 transition-all">View Proof</button>
+</div>
+</div>
+<!-- Transaction Row -->
+<div class="flex items-center justify-between p-4 rounded-2xl bg-white/3 border border-white/5 group hover:bg-white/8 transition-all">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-xl bg-primary-container/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">arrow_downward</span>
+</div>
+<div>
+<p class="font-bold text-white">Privacy Mint</p>
+<p class="text-label-sm text-on-surface-variant">Asset Shielding • 5h ago</p>
+</div>
+</div>
+<div class="text-right flex items-center gap-4">
+<div>
+<p class="font-bold text-white">-500.00 XLM</p>
+<p class="text-label-sm text-secondary-fixed-dim font-bold">CONFIRMED</p>
+</div>
+<button class="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-label-sm font-bold border border-white/10 transition-all">View Proof</button>
+</div>
+</div>
+<!-- Transaction Row -->
+<div class="flex items-center justify-between p-4 rounded-2xl bg-white/3 border border-white/5 group hover:bg-white/8 transition-all">
+<div class="flex items-center gap-4">
+<div class="w-12 h-12 rounded-xl bg-tertiary/10 flex items-center justify-center">
+<span class="material-symbols-outlined text-tertiary">lock_open</span>
+</div>
+<div>
+<p class="font-bold text-white">Revealed Proof</p>
+<p class="text-label-sm text-on-surface-variant">KYC Compliance • 1d ago</p>
+</div>
+</div>
+<div class="text-right flex items-center gap-4">
+<div>
+<p class="font-bold text-white">Metadata</p>
+<p class="text-label-sm text-on-surface-variant">REVEALED</p>
+</div>
+<button class="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-label-sm font-bold border border-white/10 transition-all">View Proof</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Ecosystem Grid (Col 8-12) -->
+<div class="col-span-12 lg:col-span-5 space-y-6">
+<h3 class="font-headline-md text-headline-md text-white mb-2">Ecosystem</h3>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 gap-4">
+<!-- Card 1 -->
+<div class="glass-panel p-6 rounded-[1.5rem] glass-inner-stroke group cursor-pointer hover:bg-white/8 transition-all overflow-hidden relative">
+<div class="absolute -right-4 -top-4 w-24 h-24 bg-secondary-container/10 blur-2xl group-hover:bg-secondary-container/20 transition-all"></div>
+<div class="flex items-start justify-between mb-4">
+<div class="w-10 h-10 rounded-lg bg-secondary-container/20 flex items-center justify-center">
+<span class="material-symbols-outlined text-secondary-container">water_drop</span>
+</div>
+<span class="text-label-sm font-label-sm text-secondary-fixed-dim">NEW</span>
+</div>
+<h4 class="font-bold text-lg mb-1">Liquidity Pools</h4>
+<p class="text-label-md text-on-surface-variant">Provide liquidity while maintaining total wallet anonymity.</p>
+</div>
+<!-- Card 2 -->
+<div class="glass-panel p-6 rounded-[1.5rem] glass-inner-stroke group cursor-pointer hover:bg-white/8 transition-all overflow-hidden relative">
+<div class="absolute -right-4 -top-4 w-24 h-24 bg-primary-container/10 blur-2xl group-hover:bg-primary-container/20 transition-all"></div>
+<div class="flex items-start justify-between mb-4">
+<div class="w-10 h-10 rounded-lg bg-primary-container/20 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">psychology</span>
+</div>
+</div>
+<h4 class="font-bold text-lg mb-1">ZK-Proofs Hub</h4>
+<p class="text-label-md text-on-surface-variant">Generate zero-knowledge proofs for third-party verification.</p>
+</div>
+<!-- Card 3 -->
+<div class="glass-panel p-6 rounded-[1.5rem] glass-inner-stroke group cursor-pointer hover:bg-white/8 transition-all overflow-hidden relative">
+<div class="absolute -right-4 -top-4 w-24 h-24 bg-tertiary/10 blur-2xl group-hover:bg-tertiary/20 transition-all"></div>
+<div class="flex items-start justify-between mb-4">
+<div class="w-10 h-10 rounded-lg bg-tertiary/20 flex items-center justify-center">
+<span class="material-symbols-outlined text-tertiary">currency_exchange</span>
+</div>
+</div>
+<h4 class="font-bold text-lg mb-1">Private Swap</h4>
+<p class="text-label-md text-on-surface-variant">High-speed slippage-free swaps with obscured paths.</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Footer Stats (Floating Mini Glass) -->
+<footer class="mt-12 flex flex-wrap gap-8 py-8 border-t border-white/10">
+<div class="flex flex-col">
+<span class="text-label-sm font-label-sm text-on-surface-variant uppercase tracking-widest">Network Health</span>
+<span class="font-headline-md text-secondary-fixed-dim font-bold">Optimal</span>
+</div>
+<div class="flex flex-col">
+<span class="text-label-sm font-label-sm text-on-surface-variant uppercase tracking-widest">Latency</span>
+<span class="font-headline-md text-white font-bold">142ms</span>
+</div>
+<div class="flex flex-col">
+<span class="text-label-sm font-label-sm text-on-surface-variant uppercase tracking-widest">Nodes Online</span>
+<span class="font-headline-md text-white font-bold">4,129</span>
+</div>
+<div class="ml-auto flex items-center gap-4">
+<span class="text-label-md text-on-surface-variant">Securely Connected via 12.0.4.82</span>
+<div class="w-3 h-3 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e]"></div>
+</div>
+</footer>
+</main>
+</div>
+<!-- Mobile Bottom Nav -->
+<nav class="md:hidden fixed bottom-0 left-0 w-full bg-surface-container-low/80 backdrop-blur-xl border-t border-white/10 px-6 py-4 flex justify-between items-center z-[100]">
+<a class="flex flex-col items-center gap-1 text-secondary-fixed-dim" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">shield</span>
+<span class="text-[10px] font-bold">VAULT</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-on-surface-variant" href="#">
+<span class="material-symbols-outlined">waves</span>
+<span class="text-[10px]">POOL</span>
+</a>
+<div class="w-14 h-14 -mt-10 bg-primary-container rounded-full flex items-center justify-center cyber-glow border-4 border-[#0b0e14]">
+<span class="material-symbols-outlined text-white text-[28px]">add</span>
+</div>
+<a class="flex flex-col items-center gap-1 text-on-surface-variant" href="#">
+<span class="material-symbols-outlined">receipt_long</span>
+<span class="text-[10px]">ACTIVITY</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-on-surface-variant" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="text-[10px]">SYSTEM</span>
+</a>
+</nav>
+<script>
+        // Micro-interaction for balance hover
+        const balanceValue = document.querySelector('.tracking-tight');
+        if (balanceValue) {
+            balanceValue.addEventListener('mouseenter', () => {
+                balanceValue.style.textShadow = '0 0 20px rgba(255, 255, 255, 0.4)';
+            });
+            balanceValue.addEventListener('mouseleave', () => {
+                balanceValue.style.textShadow = 'none';
+            });
+        }
+
+        // Simulate real-time privacy pulse variability
+        const pulses = document.querySelectorAll('.privacy-pulse');
+        setInterval(() => {
+            pulses.forEach(p => {
+                const duration = 2 + Math.random() * 2;
+                p.style.setProperty('--pulse-duration', `${duration}s`);
+            });
+        }, 5000);
+    </script>
+</body></html>
