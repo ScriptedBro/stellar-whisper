@@ -1,6 +1,39 @@
+import { useState } from 'react';
 import type { ActivityLog as ActivityLogType, PrivateNote } from '../../types';
 import { PoolStats } from './PoolStats';
 import { ActivityLog } from './ActivityLog';
+
+interface CopyButtonProps {
+  text: string;
+  tooltip: string;
+}
+
+function CopyButton({ text, tooltip }: CopyButtonProps) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      console.error("Failed to copy:", err);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="p-1 hover:bg-white/10 rounded transition-all text-[#cfc2d7] hover:text-white flex items-center justify-center cursor-pointer ml-1 border-none bg-transparent"
+      title={`Copy ${tooltip}`}
+    >
+      <span className="material-symbols-outlined text-[10px] font-bold" style={{ fontSize: '10px' }}>
+        {copied ? 'check' : 'content_copy'}
+      </span>
+    </button>
+  );
+}
 
 interface VaultDashboardProps {
   shieldedBalance: number;
@@ -174,11 +207,17 @@ export function VaultDashboard({
                     </span>
                   </div>
                   <div className="font-mono text-[9px] text-[#cfc2d7] flex flex-col gap-0.5">
-                    <div className="truncate" title={note.commitment}>
-                      <span className="text-[#00dce5]">Commitment:</span> {note.commitment.slice(0, 16)}...
+                    <div className="flex items-center justify-between w-full" title={note.commitment}>
+                      <span className="truncate flex-grow">
+                        <span className="text-[#00dce5]">Commitment:</span> {note.commitment.slice(0, 16)}...
+                      </span>
+                      <CopyButton text={note.commitment} tooltip="Commitment" />
                     </div>
-                    <div className="truncate" title={note.nullifierNonce}>
-                      <span className="text-[#dcb8ff]">Nonce:</span> {note.nullifierNonce.slice(0, 16)}...
+                    <div className="flex items-center justify-between w-full" title={note.nullifierNonce}>
+                      <span className="truncate flex-grow">
+                        <span className="text-[#dcb8ff]">Nonce:</span> {note.nullifierNonce.slice(0, 16)}...
+                      </span>
+                      <CopyButton text={note.nullifierNonce} tooltip="Nonce" />
                     </div>
                   </div>
                 </div>

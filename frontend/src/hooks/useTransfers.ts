@@ -218,7 +218,7 @@ export function useTransfers({
             commitment: bytesToHex(commitmentBytes),
             spent: false,
             txHash: txHash || '',
-            timestamp: new Date().toLocaleTimeString()
+            timestamp: new Date().toISOString()
           };
           setNotes(prev => {
             const updated = [...prev, newNote];

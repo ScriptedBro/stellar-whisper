@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { rpc, scValToNative, xdr } from '@stellar/stellar-sdk';
+import { rpc, scValToNative, xdr, Contract, Account, TransactionBuilder, Networks, nativeToScVal } from '@stellar/stellar-sdk';
 import type { PrivateNote } from '../types';
 import { 
   deriveViewingKey, 
@@ -13,6 +13,33 @@ import {
   getOnChainZeroHash,
   computeLatestMerkleRootOnChain
 } from '../lib/merkle';
+
+async function checkNullifierOnChain(
+  nullifierBytes: Uint8Array,
+  contractId: string,
+  sourceAddress: string
+): Promise<boolean> {
+  try {
+    const server = new rpc.Server("https://soroban-testnet.stellar.org");
+    const dummyAccount = new Account(sourceAddress, "0");
+    const contract = new Contract(contractId);
+    const tx = new TransactionBuilder(dummyAccount, {
+      fee: "100",
+      networkPassphrase: Networks.TESTNET
+    })
+    .addOperation(contract.call("has_nullifier", nativeToScVal(nullifierBytes, { type: "bytes" })))
+    .setTimeout(30)
+    .build();
+
+    const sim = await server.simulateTransaction(tx);
+    if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
+      return Boolean(scValToNative(sim.result.retval));
+    }
+  } catch (e) {
+    console.warn("On-chain nullifier check failed:", e);
+  }
+  return false;
+}
 
 const fetchContractEvents = async (
   server: rpc.Server,
@@ -342,38 +369,31 @@ export function useNotes(
       }
       
       // Now build finalNotes array from the merged map
-      let finalNotesList: PrivateNote[] = [];
-      for (const [, note] of existingNotesMap.entries()) {
-        // Check if this note is spent
-        const nullifierBytes = await deriveNullifier(zkPrivateKey, note.nullifierNonce);
-        const nullifierHex = bytesToHexDirect(nullifierBytes);
-        finalNotesList.push({
-          ...note,
-          spent: note.spent || spentNullifiers.has(nullifierHex)
-        });
-      }
-
-      const activeLocalNotes = finalNotesList.filter(note => !note.spent);
-      const latestChangeNote = activeLocalNotes
-        .filter(note => note.txHash)
-        .sort((a, b) => {
-          const aTime = Date.parse(a.timestamp || '') || 0;
-          const bTime = Date.parse(b.timestamp || '') || 0;
-          return bTime - aTime;
-        })[0];
-
-      if (latestChangeNote && activeLocalNotes.length > 1) {
-        finalNotesList = finalNotesList.map(note => {
-          if (
-            note.commitment !== latestChangeNote.commitment &&
-            !note.spent &&
-            note.amount > latestChangeNote.amount
-          ) {
-            return { ...note, spent: true };
+      const existingNotesListRaw = Array.from(existingNotesMap.values());
+      const finalNotesList = await Promise.all(
+        existingNotesListRaw.map(async (note) => {
+          const nullifierBytes = await deriveNullifier(zkPrivateKey, note.nullifierNonce);
+          const nullifierHex = bytesToHexDirect(nullifierBytes);
+          
+          let isSpent = spentNullifiers.has(nullifierHex);
+          
+          // If locally marked spent but not in the event scan, double-check on-chain status
+          if (note.spent && !isSpent) {
+            const simulationSource = userAddress;
+            isSpent = await checkNullifierOnChain(
+              nullifierBytes,
+              whisperContractId,
+              simulationSource
+            );
           }
-          return note;
-        });
-      }
+          
+          return {
+            ...note,
+            spent: isSpent
+          };
+        })
+      );
+      
       
       // Build the canonical commitment list.
       // The on-chain Merkle tree is built strictly in insertion order, so the

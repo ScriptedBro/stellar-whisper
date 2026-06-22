@@ -1,4 +1,36 @@
+import { useState } from 'react';
 
+interface CopyButtonProps {
+  text: string;
+  tooltip: string;
+}
+
+function CopyButton({ text, tooltip }: CopyButtonProps) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      console.error("Failed to copy:", err);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="p-1 hover:bg-white/10 rounded transition-all text-[#cfc2d7] hover:text-white flex items-center justify-center cursor-pointer ml-1 border-none bg-transparent"
+      title={`Copy ${tooltip}`}
+    >
+      <span className="material-symbols-outlined text-[12px] font-bold" style={{ fontSize: '12px' }}>
+        {copied ? 'check' : 'content_copy'}
+      </span>
+    </button>
+  );
+}
 
 interface SidebarProps {
   activeTab: 'vault' | 'pool' | 'send' | 'compliance';
@@ -95,18 +127,30 @@ export function Sidebar({
         <div className="px-4 py-2 text-[10px] text-[#cfc2d7]/50 font-mono">
           {isConnected ? (
             <div className="flex flex-col gap-1">
-              <span className="text-[#00dce5] truncate">{userAddress}</span>
+              <div className="flex items-center justify-between w-full mt-1">
+                <span className="text-[#00dce5] truncate flex-grow" title={userAddress}>{userAddress}</span>
+                <CopyButton text={userAddress} tooltip="Wallet Address" />
+              </div>
               {zkPrivateKey && (
                 <>
-                  <span className="text-[#dcb8ff] truncate text-[9px] mt-1 border border-[#8a2be2]/30 px-1 py-0.5 rounded bg-[#8a2be2]/10" title={`skey_${zkPrivateKey}`}>
-                    🔑 ZK-Key: skey_{zkPrivateKey.slice(0, 6)}...
-                  </span>
-                  <span className="text-[#00f4fe] truncate text-[9px] mt-1 border border-[#00f4fe]/30 px-1 py-0.5 rounded bg-[#00f4fe]/10" title={derivedPubkeyHex}>
-                    🛡️ ZK PubKey: {derivedPubkeyHex.slice(0, 6)}...
-                  </span>
-                  <span className="text-[#00ff87] truncate text-[9px] mt-1 border border-[#00ff87]/30 px-1 py-0.5 rounded bg-[#00ff87]/10" title={derivedViewingKey}>
-                    👁️ Viewing Key: {derivedViewingKey.slice(0, 6)}...
-                  </span>
+                  <div className="flex items-center justify-between w-full mt-1 border border-[#8a2be2]/30 px-1 py-0.5 rounded bg-[#8a2be2]/10">
+                    <span className="text-[#dcb8ff] truncate text-[9px] flex-grow" title={`skey_${zkPrivateKey}`}>
+                      🔑 ZK-Key: skey_{zkPrivateKey.slice(0, 6)}...
+                    </span>
+                    <CopyButton text={`skey_${zkPrivateKey}`} tooltip="ZK Private Key" />
+                  </div>
+                  <div className="flex items-center justify-between w-full mt-1 border border-[#00f4fe]/30 px-1 py-0.5 rounded bg-[#00f4fe]/10">
+                    <span className="text-[#00f4fe] truncate text-[9px] flex-grow" title={derivedPubkeyHex}>
+                      🛡️ ZK PubKey: {derivedPubkeyHex.slice(0, 6)}...
+                    </span>
+                    <CopyButton text={derivedPubkeyHex} tooltip="ZK Public Key" />
+                  </div>
+                  <div className="flex items-center justify-between w-full mt-1 border border-[#00ff87]/30 px-1 py-0.5 rounded bg-[#00ff87]/10">
+                    <span className="text-[#00ff87] truncate text-[9px] flex-grow" title={derivedViewingKey}>
+                      👁️ Viewing Key: {derivedViewingKey.slice(0, 6)}...
+                    </span>
+                    <CopyButton text={derivedViewingKey} tooltip="Viewing Key" />
+                  </div>
                 </>
               )}
               <button onClick={disconnectWallet} className="text-left text-[#ffb4ab] hover:underline cursor-pointer mt-1 bg-transparent border-none">Disconnect Wallet</button>
