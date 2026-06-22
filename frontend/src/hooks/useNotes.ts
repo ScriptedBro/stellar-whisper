@@ -48,10 +48,10 @@ const fetchContractEvents = async (
 ) => {
   const events: any[] = [];
   let cursor: string | undefined;
+  let lastCursor: string | undefined;
 
   do {
     const request: any = {
-      startLedger,
       limit: 100,
       filters: [
         {
@@ -62,16 +62,20 @@ const fetchContractEvents = async (
     };
     if (cursor) {
       request.cursor = cursor;
+    } else {
+      request.startLedger = startLedger;
     }
 
     const response = await server.getEvents(request);
 
     events.push(...(response.events || []));
-    cursor = response.cursor || undefined;
-
-    if (!response.events || response.events.length === 0) {
+    
+    if (!response.cursor || response.cursor === lastCursor) {
       break;
     }
+
+    lastCursor = response.cursor;
+    cursor = response.cursor;
   } while (cursor);
 
   return events;
@@ -212,30 +216,50 @@ export function useNotes(
       const latestLedger = await server.getLatestLedger();
       const endLedger = latestLedger.sequence;
       
-      const startLedger = Math.max(1, endLedger - 120000);
-      setSyncProgress(`Scanning ledgers ${startLedger} to ${endLedger}...`);
-      
-      console.log(`Syncing notes: scanning ledgers from ${startLedger} to ${endLedger} for contract ${whisperContractId}`);
-      
+      const startLedger = 1;
       let events: any[] = [];
+      let usedIndexer = false;
+
       try {
-        events = await fetchContractEvents(server, whisperContractId, startLedger);
-      } catch (e: any) {
-        const errorMsg = e.message || String(e);
-        console.warn(`Initial event query failed: ${errorMsg}`);
-        const match = errorMsg.match(/range:\s*(\d+)/i);
-        if (match && match[1]) {
-          const minLedger = parseInt(match[1], 10);
-          console.log(`Retrying event query with adjusted startLedger: ${minLedger}`);
-          events = await fetchContractEvents(server, whisperContractId, minLedger);
-        } else {
-          console.log(`Failed to parse range from error. Retrying with endLedger - 10000`);
-          const fallbackStart = Math.max(1, endLedger - 10000);
-          events = await fetchContractEvents(server, whisperContractId, fallbackStart);
+        console.log("Attempting to sync events from local indexer...");
+        setSyncProgress("Querying local indexer...");
+        const indexerResponse = await fetch("http://localhost:8123/api/events");
+        if (indexerResponse.ok) {
+          const indexerData = await indexerResponse.json();
+          if (indexerData.contractId === whisperContractId) {
+            events = indexerData.events || [];
+            usedIndexer = true;
+            console.log(`Successfully fetched ${events.length} events from local indexer.`);
+          } else {
+            console.warn(`Local indexer is running for a different contract: ${indexerData.contractId} vs current ${whisperContractId}`);
+          }
+        }
+      } catch (err) {
+        console.log("Local indexer is not running or unreachable. Falling back to direct blockchain scan.");
+      }
+
+      if (!usedIndexer) {
+        setSyncProgress(`Scanning blockchain history...`);
+        console.log(`Syncing notes: querying contract ${whisperContractId} from ledger ${startLedger} to ${endLedger}`);
+        try {
+          events = await fetchContractEvents(server, whisperContractId, startLedger);
+        } catch (e: any) {
+          const errorMsg = e.message || String(e);
+          console.warn(`Initial event query failed: ${errorMsg}`);
+          const match = errorMsg.match(/range:\s*(\d+)/i) || errorMsg.match(/(\d+)\s*-\s*(\d+)/);
+          if (match && match[1]) {
+            const minLedger = parseInt(match[1], 10);
+            console.log(`Retrying event query with adjusted startLedger: ${minLedger}`);
+            events = await fetchContractEvents(server, whisperContractId, minLedger);
+          } else {
+            console.log(`Failed to parse range from error. Retrying with endLedger - 120000`);
+            const fallbackStart = Math.max(1, endLedger - 120000);
+            events = await fetchContractEvents(server, whisperContractId, fallbackStart);
+          }
         }
       }
       
-      console.log(`Fetched ${events.length} events from blockchain.`);
+      console.log(`Fetched ${events.length} events.`);
       setSyncProgress(`Found ${events.length} contract events. Decrypting...`);
       
       const decryptedNotesMap = new Map<string, PrivateNote>();
@@ -476,6 +500,23 @@ export function useNotes(
     }
   };
 
+  const importNotes = (importedNotes: PrivateNote[]) => {
+    if (!userAddress) return;
+    setNotes(prev => {
+      const existingCommitments = new Set(prev.map(n => n.commitment));
+      const newUniqueNotes = importedNotes.filter(n => !existingCommitments.has(n.commitment));
+      const updated = [...prev, ...newUniqueNotes];
+      localStorage.setItem(`whisper_notes_${userAddress}`, JSON.stringify(updated));
+      setAllCommitments(updated.map(n => n.commitment));
+      
+      const unspentSum = updated.filter(n => !n.spent).reduce((sum, n) => sum + n.amount, 0);
+      if (updateShieldedBalance) {
+        updateShieldedBalance(unspentSum);
+      }
+      return updated;
+    });
+  };
+
   return {
     notes,
     setNotes,
@@ -485,6 +526,7 @@ export function useNotes(
     syncProgress,
     allCommitments,
     setAllCommitments,
-    syncNotesFromChain
+    syncNotesFromChain,
+    importNotes
   };
 }

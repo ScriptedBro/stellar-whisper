@@ -1,0 +1,15 @@
+{
+  "name": "stellar-whisper-indexer",
+  "version": "1.0.0",
+  "description": "Local event indexer and cache for Stellar Whisper",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^16.0.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  }
+}
