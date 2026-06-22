@@ -9,7 +9,9 @@ crate-type = ["lib", "cdylib"]
 doctest = false
 
 [dependencies]
-soroban-sdk = { workspace = true }
+soroban-sdk = { workspace = true, features = ["hazmat-crypto"] }
+soroban-poseidon = { git = "https://github.com/stellar/rs-soroban-poseidon", tag = "v26.0.0" }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+ed25519-dalek = { version = "2.1.0", features = ["rand_core"] }

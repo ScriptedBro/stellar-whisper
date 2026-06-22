@@ -1,0 +1,27 @@
+export interface Config {
+  network: string;
+  adminAddress: string;
+  tokenContractId: string;
+  verifierContractId: string;
+  whisperContractId: string;
+}
+
+export interface ActivityLog {
+  id: string;
+  type: 'deposit' | 'transfer' | 'compliance';
+  amount?: number;
+  recipient?: string;
+  timestamp: string;
+  status: 'pending' | 'success' | 'verified' | 'failed';
+  txHash?: string;
+  details?: string;
+}
+
+export interface PrivateNote {
+  amount: number;
+  nullifierNonce: string; // Hex string (without 0x)
+  commitment: string;     // Hex string (without 0x)
+  spent: boolean;
+  txHash?: string;
+  timestamp?: string;
+}

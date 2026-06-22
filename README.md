@@ -1,14 +1,18 @@
 # Stellar Whisper: Fully Shielded Wallet & Remittance
 
-Stellar Whisper is a **compliance-first, fully shielded wallet and remittance application** built for stablecoins (USDC/EURC) on the Stellar network. It leverages the cryptographic primitives introduced in Stellar **Protocol 25 & 26** to perform on-chain verification of client-side zero-knowledge proofs.
+Stellar Whisper is a **compliance-first, fully shielded wallet and remittance application** built for stablecoins (USDC/EURC) on the Stellar network. It leverages zero-knowledge cryptography and Soroban smart contracts to enable private stablecoin deposits, transfers, and withdrawals.
 
 ---
 
 ## 🌟 Key Features
+
 - **Shielded Stablecoin Transfers**: Users deposit public stablecoins into a Soroban-based privacy pool and perform end-to-end transfers completely off-ledger.
-- **Client-Side Proof Generation**: Proofs are compiled client-side in the browser using Aztec's WebAssembly backend, preserving transaction integrity without exposing secrets.
-- **Compliant Disclosures**: Users can generate a cryptographically secure **ZK Compliance Attestation** to satisfy tax or KYC audit requirements, proving they are compliant without leaking their entire private ledger history.
-- **Optimized on Soroban**: Utilizes Protocol 25/26 native host functions (such as Poseidon hashing and BN254 pairing) to achieve ultra-low gas costs for Groth16/UltraHonk verification.
+- **Client-Side ZK Proof Generation**: The browser generates real UltraHonk zero-knowledge proofs using the Aztec Barretenberg WASM engine (`@aztec/bb.js`). The prover executes the full Noir circuit witness, performs multi-scalar multiplication (MSM), and compiles polynomial commitments — all client-side, ensuring private inputs never leave the user's device.
+- **Value Conservation System**: The system verifies balance conservation using a 7-parameter public input schema:
+  $$\text{Input Amount} = \text{Withdraw Amount} + \text{Recipient Output} + \text{Change Output}$$
+- **Double-Spend Nullifier Guard**: Prevents double-spending of note commitments by tracking nullifiers in persistent storage on-chain.
+- **Compliance & Clean Source Screening**: Before shielding assets, the application screens depositors' public wallets against sanctions lists (OFAC) and risk databases (e.g., Chainalysis/Elliptic).
+- **Compliant Disclosures (Receipts Vault)**: Users can view details of their operations in the Receipts Vault to satisfy tax or KYC audit requirements, proving their funds originated from a clean source without leaking their current destination wallet or other pool activity.
 
 ---
 
@@ -19,8 +23,8 @@ Stellar Whisper is a **compliance-first, fully shielded wallet and remittance ap
                                     │
             ┌───────────────────────┴───────────────────────┐
             ▼                                               ▼
-   [ Generate ZK Proof ]                             [ Deposit USDC ]
-   (Client-side Wasm / Noir)                          (Public Transfer)
+    [ Generate ZK Proof ]                            [ Deposit USDC ]
+   (UltraHonk via bb.js)                           (Public Transfer)
             │                                               │
             │                                               ▼
             │                                     ┌───────────────────┐
@@ -33,13 +37,33 @@ Stellar Whisper is a **compliance-first, fully shielded wallet and remittance ap
                                                      (Target Payout)
 ```
 
+### Cryptographic Parameters & Primitives
+
+- **Merkle Tree Depth**: 16 levels (maximum pool capacity of 65,536 leaves per instance).
+- **Hashing**: Poseidon hashing over the BN254 scalar field (`soroban_poseidon` + `bn254::Fr`) for Merkle tree compression, note commitments, nullifiers, and public-key derivation. Poseidon is the optimal hash for ZK circuits — orders of magnitude cheaper in constraints than SHA-256.
+- **Proving System**: Noir circuit compiled to UltraHonk (Aztec Barretenberg). Proofs are generated client-side in the browser via `@aztec/bb.js` WASM and submitted on-chain as raw proof bytes.
+- **Verifier Contract**: Implements the **full UltraHonk verification protocol** on-chain as a Soroban smart contract. The verifier performs:
+  1. Proof deserialization and structural validation against the embedded verification key (VK).
+  2. Fiat–Shamir challenge generation (Oink transcript rounds).
+  3. Public-input delta computation for the permutation grand-product argument.
+  4. **Sumcheck protocol verification** — validates the multilinear polynomial evaluations.
+  5. **Shplemini batch-opening verification** (Gemini + Shplonk + KZG pairing check) — cryptographically verifies polynomial commitment openings using BN254 elliptic curve pairings via Soroban's native `bn254` host functions.
+
+  This ensures that private preimages (secret keys and nullifier nonces) are never exposed on-chain or leaked in the ledger history.
+
 ---
 
 ## 📁 Repository Layout
 
 - `/contracts/whisper` — Soroban smart contract managing the shielded pool, Merkle commitments, and nullifier tracking.
+- `/contracts/verifier` — Full UltraHonk ZK verifier contract implementing sumcheck, Shplemini/KZG pairing verification, and Fiat–Shamir transcript generation on-chain via Soroban's native BN254 host functions.
 - `/circuits/whisper` — Noir zero-knowledge circuit that validates commitments, Merkle paths, and outputs nullifiers.
 - `/frontend` — Vite + React (TypeScript) dashboard demonstrating shielding, private transferring, and ZK compliance report generation.
+  - `src/components/` — UI components broken down by section (layout, vault, pool, send, compliance).
+  - `src/hooks/` — Modular React hooks isolating wallet connection, balances, notes syncing, Soroban calls, and transfer flows.
+  - `src/lib/` — Cryptographic utilities, Merkle path generators, and decryption tools.
+  - `src/types/` — Shared TypeScript type declarations.
+  - `src/config/` — Deployment JSON data, default values, and local environment variables.
 - `/scripts` — Build, setup, and deployment scripts to orchestrate local development.
 
 ---
@@ -79,6 +103,10 @@ Deploy the contracts to the Stellar testnet and generate the frontend configs:
 Launch the local web server to interact with the wallet interface:
 ```bash
 cd frontend
+```
+Install dependencies and start the dev server:
+```bash
+npm install
 npm run dev
 ```
 Open [http://localhost:5173](http://localhost:5173) in your browser.
@@ -86,4 +114,10 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 ---
 
 ## 🔒 Security & Compliance Note
-This repository contains hackathon-grade proof-of-concept code. The cryptographic hash functions are backed by standard test implementations, and the ZK circuits require thorough third-party auditing before deployment to any production mainnet environment.
+This repository contains a zero-knowledge remittance protocol designed for private stablecoin transfers.
+
+**Cryptographic Verification:**
+Private keys and nullifier nonces never leave client memory. Real UltraHonk ZK proof bytes are generated in-browser by the Aztec Barretenberg WASM engine and verified on-chain by a full UltraHonk verifier contract. The on-chain verifier executes the complete cryptographic verification pipeline — including Fiat–Shamir transcript generation, sumcheck protocol verification, and Shplemini batch-opening (Gemini + Shplonk + KZG pairing) — using Soroban's native BN254 elliptic curve host functions introduced in Protocol 26.
+
+**Prototype Disclaimer:**
+While the cryptographic pipeline is fully implemented end-to-end, this remains a hackathon prototype. The implementation must be audited and verified by independent professional cryptographers before any production deployment.

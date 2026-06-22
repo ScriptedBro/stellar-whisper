@@ -41,6 +41,8 @@ echo "Step 3b: Deploying USDC Token Asset Contract..."
 TOKEN_ID=$(stellar contract asset deploy \
   --asset USDC:$ADMIN_ADDRESS \
   --source $ADMIN_KEY \
+  --network $NETWORK 2>/dev/null || stellar contract id asset \
+  --asset USDC:$ADMIN_ADDRESS \
   --network $NETWORK)
 echo "✅ USDC Token Asset Contract Deployed! ID: $TOKEN_ID"
 
@@ -77,6 +79,14 @@ cat << EOF > frontend/src/config/deployed.json
   "verifierContractId": "$VERIFIER_ID",
   "whisperContractId": "$WHISPER_ID"
 }
+EOF
+
+cat << EOF > frontend/.env
+VITE_NETWORK="$NETWORK"
+VITE_ADMIN_ADDRESS="$ADMIN_ADDRESS"
+VITE_TOKEN_CONTRACT_ID="$TOKEN_ID"
+VITE_VERIFIER_CONTRACT_ID="$VERIFIER_ID"
+VITE_WHISPER_CONTRACT_ID="$WHISPER_ID"
 EOF
 
 echo "=== Deployment Completed Successfully! ==="
