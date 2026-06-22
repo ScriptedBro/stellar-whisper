@@ -20,3 +20,6 @@ node_modules/
 !README.md
 !readme.md
 !Readme.md
+
+# Indexer DB cache
+indexer/indexer_db.json

@@ -99,17 +99,49 @@ Deploy the contracts to the Stellar testnet and generate the frontend configs:
 ./scripts/deploy.sh
 ```
 
-### 4. Start the Frontend
-Launch the local web server to interact with the wallet interface:
-```bash
-cd frontend
-```
-Install dependencies and start the dev server:
-```bash
-npm install
-npm run dev
-```
-Open [http://localhost:5173](http://localhost:5173) in your browser.
+### 4. Start the Application & Event Indexer
+
+To solve Soroban event pruning limitations on public testnet nodes, the application includes an off-chain indexer service (`indexer/`). This service polls the RPC, maintains a persistent cache of events in `indexer_db.json`, and exposes them to the frontend.
+
+You can run both the frontend and indexer concurrently from the root directory:
+
+1. **Install Workspace Dependencies:**
+   From the project root, install dependencies for the workspace, frontend, and indexer:
+   ```bash
+   # Install workspace-level tools (like concurrently)
+   npm install
+   
+   # Install indexer-specific dependencies
+   cd indexer && npm install && cd ..
+   
+   # Install frontend-specific dependencies
+   cd frontend && npm install && cd ..
+   ```
+
+2. **Run Everything Concurrently:**
+   Run the dev workspace command:
+   ```bash
+   npm run dev
+   ```
+   This command starts:
+   * **Indexer Service** on `http://localhost:8123`
+   * **Vite Dev Server** on `http://localhost:5173`
+
+Open [http://localhost:5173](http://localhost:5173) in your browser to access the wallet dashboard.
+
+---
+### 🛠️ Running Services Individually
+
+If you prefer to run services in separate terminal windows, run the following from the root directory:
+
+* **Start the Indexer Only:**
+  ```bash
+  npm run indexer
+  ```
+* **Start the Frontend Only:**
+  ```bash
+  npm run frontend
+  ```
 
 ---
 

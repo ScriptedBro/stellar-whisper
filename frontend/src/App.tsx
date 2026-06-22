@@ -144,6 +144,7 @@ export default function App() {
               setActiveTab={setActiveTab}
               logs={logs}
               notes={notes.notes}
+              importNotes={notes.importNotes}
             />
           )}
 

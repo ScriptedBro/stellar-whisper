@@ -45,6 +45,7 @@ interface VaultDashboardProps {
   setActiveTab: (tab: 'vault' | 'pool' | 'send' | 'compliance') => void;
   logs: ActivityLogType[];
   notes: PrivateNote[];
+  importNotes: (importedNotes: PrivateNote[]) => void;
 }
 
 export function VaultDashboard({ 
@@ -56,9 +57,59 @@ export function VaultDashboard({
   syncNotesFromChain,
   setActiveTab,
   logs,
-  notes
+  notes,
+  importNotes
 }: VaultDashboardProps) {
   const activeNotes = notes.filter(n => !n.spent);
+
+  const handleExportBackup = () => {
+    if (notes.length === 0) {
+      alert("No notes available to export.");
+      return;
+    }
+    const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(
+      JSON.stringify(notes, null, 2)
+    )}`;
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute('href', jsonString);
+    downloadAnchor.setAttribute('download', `stellar_whisper_notes_backup_${new Date().toISOString().split('T')[0]}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  };
+
+  const handleImportBackup = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const fileReader = new FileReader();
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    fileReader.onload = (e) => {
+      try {
+        const parsed = JSON.parse(e.target?.result as string);
+        if (Array.isArray(parsed)) {
+          const isValid = parsed.every(item => 
+            typeof item.amount === 'number' &&
+            typeof item.nullifierNonce === 'string' &&
+            typeof item.commitment === 'string'
+          );
+          if (isValid) {
+            importNotes(parsed);
+            alert(`Successfully imported ${parsed.length} notes!`);
+          } else {
+            alert("Invalid backup file format. Expected an array of PrivateNote objects.");
+          }
+        } else {
+          alert("Invalid backup file format. Expected a JSON array.");
+        }
+      } catch (err) {
+        console.error("Failed to parse backup JSON:", err);
+        alert("Failed to parse backup file. Please make sure it is a valid JSON file.");
+      }
+    };
+    fileReader.readAsText(file);
+    // Reset file input value so same file can be imported again if needed
+    event.target.value = '';
+  };
 
   return (
     <div className="bento-grid animate-fade-in">
@@ -184,9 +235,32 @@ export function VaultDashboard({
               <span className="material-symbols-outlined text-sm text-[#00f4fe]">receipt_long</span>
               Active Shielded Notes Registry
             </h3>
-            <span className="text-[9px] font-mono text-[#cfc2d7] bg-white/5 px-2 py-0.5 rounded border border-white/10">
-              {activeNotes.length} Active Notes
-            </span>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={handleExportBackup}
+                className="p-1 hover:bg-white/10 rounded transition-all text-[#00f4fe] hover:text-white flex items-center justify-center cursor-pointer border-none bg-transparent"
+                title="Export Notes Backup (JSON)"
+              >
+                <span className="material-symbols-outlined text-base">download</span>
+              </button>
+              <button 
+                onClick={() => document.getElementById('import-backup-file')?.click()}
+                className="p-1 hover:bg-white/10 rounded transition-all text-[#00ff87] hover:text-white flex items-center justify-center cursor-pointer border-none bg-transparent"
+                title="Import Notes Backup (JSON)"
+              >
+                <span className="material-symbols-outlined text-base">upload</span>
+              </button>
+              <input 
+                id="import-backup-file" 
+                type="file" 
+                accept=".json" 
+                onChange={handleImportBackup} 
+                className="hidden" 
+              />
+              <span className="text-[9px] font-mono text-[#cfc2d7] bg-white/5 px-2 py-0.5 rounded border border-white/10">
+                {activeNotes.length} Active Notes
+              </span>
+            </div>
           </div>
 
           <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1">
