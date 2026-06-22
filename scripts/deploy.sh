@@ -81,4 +81,12 @@ cat << EOF > frontend/src/config/deployed.json
 }
 EOF
 
+cat << EOF > frontend/.env
+VITE_NETWORK="$NETWORK"
+VITE_ADMIN_ADDRESS="$ADMIN_ADDRESS"
+VITE_TOKEN_CONTRACT_ID="$TOKEN_ID"
+VITE_VERIFIER_CONTRACT_ID="$VERIFIER_ID"
+VITE_WHISPER_CONTRACT_ID="$WHISPER_ID"
+EOF
+
 echo "=== Deployment Completed Successfully! ==="
