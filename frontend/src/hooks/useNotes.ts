@@ -334,18 +334,44 @@ export function useNotes(
       
       // Merge decrypted notes into existing notes map (overwriting if needed)
       for (const note of decryptedNotesMap.values()) {
-        existingNotesMap.set(note.commitment, note);
+        const existing = existingNotesMap.get(note.commitment);
+        existingNotesMap.set(note.commitment, {
+          ...note,
+          spent: existing?.spent || note.spent
+        });
       }
       
       // Now build finalNotes array from the merged map
-      const finalNotesList: PrivateNote[] = [];
+      let finalNotesList: PrivateNote[] = [];
       for (const [, note] of existingNotesMap.entries()) {
         // Check if this note is spent
         const nullifierBytes = await deriveNullifier(zkPrivateKey, note.nullifierNonce);
         const nullifierHex = bytesToHexDirect(nullifierBytes);
         finalNotesList.push({
           ...note,
-          spent: spentNullifiers.has(nullifierHex)
+          spent: note.spent || spentNullifiers.has(nullifierHex)
+        });
+      }
+
+      const activeLocalNotes = finalNotesList.filter(note => !note.spent);
+      const latestChangeNote = activeLocalNotes
+        .filter(note => note.txHash)
+        .sort((a, b) => {
+          const aTime = Date.parse(a.timestamp || '') || 0;
+          const bTime = Date.parse(b.timestamp || '') || 0;
+          return bTime - aTime;
+        })[0];
+
+      if (latestChangeNote && activeLocalNotes.length > 1) {
+        finalNotesList = finalNotesList.map(note => {
+          if (
+            note.commitment !== latestChangeNote.commitment &&
+            !note.spent &&
+            note.amount > latestChangeNote.amount
+          ) {
+            return { ...note, spent: true };
+          }
+          return note;
         });
       }
       

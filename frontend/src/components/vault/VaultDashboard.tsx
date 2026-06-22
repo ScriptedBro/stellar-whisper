@@ -14,7 +14,7 @@ interface VaultDashboardProps {
   notes: PrivateNote[];
 }
 
-export function VaultDashboard({
+export function VaultDashboard({ 
   shieldedBalance,
   publicBalance,
   isConnected,
@@ -25,6 +25,8 @@ export function VaultDashboard({
   logs,
   notes
 }: VaultDashboardProps) {
+  const activeNotes = notes.filter(n => !n.spent);
+
   return (
     <div className="bento-grid animate-fade-in">
       {/* Shielded Balance Hero Card */}
@@ -150,33 +152,25 @@ export function VaultDashboard({
               Active Shielded Notes Registry
             </h3>
             <span className="text-[9px] font-mono text-[#cfc2d7] bg-white/5 px-2 py-0.5 rounded border border-white/10">
-              {notes.filter(n => !n.spent).length} Active Notes
+              {activeNotes.length} Active Notes
             </span>
           </div>
 
           <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1">
-            {notes.length === 0 ? (
+            {activeNotes.length === 0 ? (
               <div className="text-center py-6 text-[#cfc2d7] text-xs">
                 No shielded notes detected on-chain. Deposits or transfers will automatically generate notes.
               </div>
             ) : (
-              notes.map((note) => (
+              activeNotes.map((note) => (
                 <div 
                   key={note.commitment} 
-                  className={`p-3 rounded border text-xs transition-all ${
-                    note.spent 
-                      ? 'bg-red-950/10 border-red-500/10 opacity-50' 
-                      : 'bg-green-950/10 border-green-500/20 hover:border-green-500/40'
-                  }`}
+                  className="p-3 rounded border text-xs transition-all bg-green-950/10 border-green-500/20 hover:border-green-500/40"
                 >
                   <div className="flex justify-between items-start mb-1.5">
                     <span className="font-bold text-white font-mono">{note.amount.toFixed(2)} USDC</span>
-                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${
-                      note.spent 
-                        ? 'bg-red-500/20 text-red-400' 
-                        : 'bg-green-500/20 text-green-400'
-                    }`}>
-                      {note.spent ? 'Spent' : 'Unspent'}
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider bg-green-500/20 text-green-400">
+                      Spendable
                     </span>
                   </div>
                   <div className="font-mono text-[9px] text-[#cfc2d7] flex flex-col gap-0.5">
