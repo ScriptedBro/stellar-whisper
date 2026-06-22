@@ -218,7 +218,7 @@ export function useTransfers({
             commitment: bytesToHex(commitmentBytes),
             spent: false,
             txHash: txHash || '',
-            timestamp: new Date().toLocaleTimeString()
+            timestamp: new Date().toISOString()
           };
           setNotes(prev => {
             const updated = [...prev, newNote];
@@ -312,9 +312,12 @@ export function useTransfers({
     addProvingLog("Initializing Aztec UltraHonk Prover engine...");
     addProvingLog("Fetching commitments list from ledger for path construction...");
 
-    let noteToSpend = notes.find(n => n.commitment === selectedNoteCommitment && !n.spent);
+    const unspentNotes = notes
+      .filter(n => !n.spent)
+      .sort((a, b) => a.amount - b.amount);
+    let noteToSpend = unspentNotes.find(n => n.amount >= amt);
     if (!noteToSpend) {
-      noteToSpend = notes.find(n => !n.spent);
+      noteToSpend = unspentNotes.find(n => n.commitment === selectedNoteCommitment);
     }
     
     if (!noteToSpend) {
@@ -325,7 +328,7 @@ export function useTransfers({
 
     const noteAmount = noteToSpend.amount;
     if (amt > noteAmount) {
-      alert(`Selected note only contains ${noteAmount} USDC. Cannot transfer ${amt} USDC.`);
+      alert(`No single private note can cover ${amt} USDC. Deposit a larger note or send a smaller amount.`);
       setIsProving(false);
       return;
     }
@@ -445,7 +448,8 @@ export function useTransfers({
     // Also update localStorage for consistency
     localStorage.setItem(`whisper_latest_root_${userAddress}`, computedRootHex);
 
-    const isRootValid = await checkMerkleRootOnChain(merkleRootBytes, config.whisperContractId, config.adminAddress);
+    const simulationSource = userAddress || config.adminAddress;
+    const isRootValid = await checkMerkleRootOnChain(merkleRootBytes, config.whisperContractId, simulationSource);
     if (!isRootValid) {
       const message = [
         "Cannot withdraw because the local Merkle tree is out of sync with the on-chain pool.",
@@ -639,7 +643,7 @@ export function useTransfers({
             commitment: bytesToHex(changeCommitmentBytes),
             spent: false,
             txHash: txHash || '',
-            timestamp: new Date().toLocaleTimeString()
+            timestamp: new Date().toISOString()
           };
           setNotes(prev => {
             const updated = prev.map(n => n.commitment === targetNoteCommitment ? { ...n, spent: true } : n);
@@ -716,7 +720,8 @@ export function useTransfers({
 
     // Check if the user address is sanctioned on-chain
     if (userAddress) {
-      isUserAddressSanctioned = SANCTIONED_ADDRESSES.includes(userAddress) || await checkIsSanctionedOnChain(userAddress, config.whisperContractId, config.adminAddress);
+      const simulationSource = userAddress || config.adminAddress;
+      isUserAddressSanctioned = SANCTIONED_ADDRESSES.includes(userAddress) || await checkIsSanctionedOnChain(userAddress, config.whisperContractId, simulationSource);
     }
 
     // If only viewingKey was provided, we perform a blockchain scan to find notes decryptable by it

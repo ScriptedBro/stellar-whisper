@@ -69,22 +69,7 @@ export default function App() {
   const soroban = useSorobanCall(config.whisperContractId);
 
   // Activity logs
-  const [logs, setLogs] = useState<ActivityLog[]>([
-    {
-      id: '1',
-      type: 'deposit',
-      amount: 500,
-      timestamp: '10 minutes ago',
-      status: 'success',
-      txHash: 'ca80a46c313795342d08ad5f0e293315cdba9f74fb848fe4e42d8e1340953488'
-    },
-    {
-      id: '2',
-      type: 'compliance',
-      timestamp: '1 hour ago',
-      status: 'verified'
-    }
-  ]);
+  const [logs, setLogs] = useState<ActivityLog[]>([]);
 
   const transfers = useTransfers({
     userAddress: wallet.userAddress,

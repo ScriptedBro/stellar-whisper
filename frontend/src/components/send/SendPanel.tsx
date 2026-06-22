@@ -70,6 +70,7 @@ export function SendPanel({
                   notes={notes}
                   selectedNoteCommitment={selectedNoteCommitment}
                   setSelectedNoteCommitment={setSelectedNoteCommitment}
+                  transferAmount={transferAmount}
                 />
               )}
 

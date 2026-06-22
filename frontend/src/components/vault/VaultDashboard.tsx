@@ -1,6 +1,39 @@
+import { useState } from 'react';
 import type { ActivityLog as ActivityLogType, PrivateNote } from '../../types';
 import { PoolStats } from './PoolStats';
 import { ActivityLog } from './ActivityLog';
+
+interface CopyButtonProps {
+  text: string;
+  tooltip: string;
+}
+
+function CopyButton({ text, tooltip }: CopyButtonProps) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      console.error("Failed to copy:", err);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      className="p-1 hover:bg-white/10 rounded transition-all text-[#cfc2d7] hover:text-white flex items-center justify-center cursor-pointer ml-1 border-none bg-transparent"
+      title={`Copy ${tooltip}`}
+    >
+      <span className="material-symbols-outlined text-[10px] font-bold" style={{ fontSize: '10px' }}>
+        {copied ? 'check' : 'content_copy'}
+      </span>
+    </button>
+  );
+}
 
 interface VaultDashboardProps {
   shieldedBalance: number;
@@ -14,7 +47,7 @@ interface VaultDashboardProps {
   notes: PrivateNote[];
 }
 
-export function VaultDashboard({
+export function VaultDashboard({ 
   shieldedBalance,
   publicBalance,
   isConnected,
@@ -25,6 +58,8 @@ export function VaultDashboard({
   logs,
   notes
 }: VaultDashboardProps) {
+  const activeNotes = notes.filter(n => !n.spent);
+
   return (
     <div className="bento-grid animate-fade-in">
       {/* Shielded Balance Hero Card */}
@@ -150,41 +185,39 @@ export function VaultDashboard({
               Active Shielded Notes Registry
             </h3>
             <span className="text-[9px] font-mono text-[#cfc2d7] bg-white/5 px-2 py-0.5 rounded border border-white/10">
-              {notes.filter(n => !n.spent).length} Active Notes
+              {activeNotes.length} Active Notes
             </span>
           </div>
 
           <div className="space-y-3 max-h-[220px] overflow-y-auto pr-1">
-            {notes.length === 0 ? (
+            {activeNotes.length === 0 ? (
               <div className="text-center py-6 text-[#cfc2d7] text-xs">
                 No shielded notes detected on-chain. Deposits or transfers will automatically generate notes.
               </div>
             ) : (
-              notes.map((note) => (
+              activeNotes.map((note) => (
                 <div 
                   key={note.commitment} 
-                  className={`p-3 rounded border text-xs transition-all ${
-                    note.spent 
-                      ? 'bg-red-950/10 border-red-500/10 opacity-50' 
-                      : 'bg-green-950/10 border-green-500/20 hover:border-green-500/40'
-                  }`}
+                  className="p-3 rounded border text-xs transition-all bg-green-950/10 border-green-500/20 hover:border-green-500/40"
                 >
                   <div className="flex justify-between items-start mb-1.5">
                     <span className="font-bold text-white font-mono">{note.amount.toFixed(2)} USDC</span>
-                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${
-                      note.spent 
-                        ? 'bg-red-500/20 text-red-400' 
-                        : 'bg-green-500/20 text-green-400'
-                    }`}>
-                      {note.spent ? 'Spent' : 'Unspent'}
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider bg-green-500/20 text-green-400">
+                      Spendable
                     </span>
                   </div>
                   <div className="font-mono text-[9px] text-[#cfc2d7] flex flex-col gap-0.5">
-                    <div className="truncate" title={note.commitment}>
-                      <span className="text-[#00dce5]">Commitment:</span> {note.commitment.slice(0, 16)}...
+                    <div className="flex items-center justify-between w-full" title={note.commitment}>
+                      <span className="truncate flex-grow">
+                        <span className="text-[#00dce5]">Commitment:</span> {note.commitment.slice(0, 16)}...
+                      </span>
+                      <CopyButton text={note.commitment} tooltip="Commitment" />
                     </div>
-                    <div className="truncate" title={note.nullifierNonce}>
-                      <span className="text-[#dcb8ff]">Nonce:</span> {note.nullifierNonce.slice(0, 16)}...
+                    <div className="flex items-center justify-between w-full" title={note.nullifierNonce}>
+                      <span className="truncate flex-grow">
+                        <span className="text-[#dcb8ff]">Nonce:</span> {note.nullifierNonce.slice(0, 16)}...
+                      </span>
+                      <CopyButton text={note.nullifierNonce} tooltip="Nonce" />
                     </div>
                   </div>
                 </div>
