@@ -15,6 +15,7 @@ Stellar Whisper is a **compliance-first, fully shielded wallet and remittance ap
 *   **Fully Shielded Transfers**: Deposit public stablecoins (USDC/EURC) into a private Soroban-based pool and execute end-to-end transfers completely off-ledger.
 *   **In-Browser Zero-Knowledge Proving**: Witness generation, multi-scalar multiplication (MSM), and polynomial commitment compilation are computed client-side in the browser via Aztec's `@aztec/bb.js` WebAssembly engine, ensuring private keys never leave the user's device.
 *   **Double-Spend Nullifier Guard**: Prevents double-spending of shielded notes by recording deterministic, cryptographically blinded nullifiers on-chain.
+*   **Cryptographic Value Conservation**: The circuit enforces that the sum of input note values equals the sum of output note values ($\text{input} = \text{withdraw} + \text{recipient} + \text{change}$), so the contract can verify no funds were created or destroyed without learning any amounts.
 *   **On-Chain Compliance Screening**: Integrates real-time depositor and recipient screening against sanctioned address lists (OFAC) using admin registries and signed oracle attestations.
 *   **Compliant Disclosures (Viewing Keys)**: Users can generate a **ZK Compliance Report** and share Viewing Keys with auditors or tax authorities, allowing selective transaction history decryption and compliance verification without exposing private spending keys.
 *   **Offline Event Indexing**: A robust node-based indexer queries, sanitizes, and caches contract events to resolve Soroban testnet event pruning limits.
@@ -64,25 +65,23 @@ For a comprehensive cryptographic breakdown, see [ARCHITECTURE.md](./ARCHITECTUR
 Stellar Whisper splits privacy, spending capability, and auditing access into separate mathematical concerns.
 
 ### 🔑 The Three-Key Model
-Instead of relying on a single private key for both balance access and spending, Stellar Whisper derives three distinct keys from a user's master seed:
+Instead of relying on a single private key for both balance access and spending, Stellar Whisper derives three distinct keys from the user's existing Stellar wallet — no new credentials required:
 
 ```
-                  ┌───────────────────────────┐
-                  │     Master Seed Phrase    │
-                  └─────────────┬─────────────┘
-                                │
-                                ▼
-                  ┌───────────────────────────┐
-                  │    ZK Spending Key (sk)   │ ──► Generates ZK proofs client-side
-                  └─────────────┬─────────────┘     (NEVER shared or stored on-chain)
-                                │
-                 ┌──────────────┴──────────────┐
-                 ▼                             ▼
-   ┌───────────────────────────┐ ┌───────────────────────────┐
-   │    ZK Public Key (pk)     │ │     Viewing Key (vk)      │
-   └───────────────────────────┘ └───────────────────────────┘
-   Used to register note         Used to symmetrically encrypt/
-   commitments in Merkle tree    decrypt private note data
+              ┌───────────────────────────────┐
+              │   Stellar Freighter Wallet    │  ← no new credentials required
+              └───────────────┬───────────────┘
+                              │ SHA-256(Ed25519 signature)
+                              ▼
+              ┌───────────────────────────────┐
+              │     ZK Spending Key (sk)      │ ──► Generates ZK proofs (never leaves browser)
+              └───────────────┬───────────────┘
+                              │
+                 ┌────────────┴────────────┐
+                 ▼                         ▼
+          ZK Public Key (pk)       Viewing Key (vk)
+          Binds ownership to       Encrypts/decrypts note
+          Merkle commitments       metadata for discovery
 ```
 
 1.  **ZK Spending Key (`sk_spend`)**: The root secret key. It is used to generate UltraHonk spend proofs. **This key never leaves the client browser** and is never broadcast to any node or contract.
