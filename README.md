@@ -89,6 +89,15 @@ Instead of relying on a single private key for both balance access and spending,
 2.  **ZK Public Key (`pk_zk`)**: Derivation: $\text{Poseidon}(sk_{spend})$. The public identity of the user inside the shielded pool. It binds ownership to note commitments without exposing the user's real Stellar wallet address.
 3.  **Viewing Key (`vk_view`)**: A separate cryptographic key used to encrypt and decrypt the note's balance and nonce metadata. Sharing this key gives read-only access to transaction histories.
 
+#### 🔐 Deterministic ZK Spending Key Derivation
+To provide a seamless user experience, the ZK Spending Key (`sk_spend`) is derived deterministically from the user's connected **Stellar Freighter Wallet**:
+*   The wallet prompts the user to sign a specific, hardcoded authorization message:
+    `"Sign this message to authorize Stellar Whisper ZK Privacy Key Derivation"`
+*   Because Ed25519 signatures are deterministic, signing this message always yields the same signature bytes for the same Stellar account.
+*   The application computes the **SHA-256** hash of the resulting signature bytes to generate the 32-byte ZK Spending Key:
+    $$\text{sk\_spend} = \text{SHA-256}(\text{Signature})$$
+*   This key is cached in the browser's temporary `sessionStorage` and is wiped when the tab is closed, ensuring it is never stored on any server or disk.
+
 ---
 
 ### 🔍 Note Discovery (Scan-and-Decrypt vs. Centralized DB)
