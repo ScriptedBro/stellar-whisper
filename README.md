@@ -55,7 +55,7 @@ sequenceDiagram
     SC->>Bob: Transfer public USDC (if withdrawing) OR emit encrypted note (if transferring)
 ```
 
-For a comprehensive cryptographic breakdown, see [ARCHITECTURE.md](file:///home/fredrick/Desktop/stellar-whisper/ARCHITECTURE.md).
+For a comprehensive cryptographic breakdown, see [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ---
 
