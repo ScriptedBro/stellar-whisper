@@ -59,6 +59,69 @@ For a comprehensive cryptographic breakdown, see [ARCHITECTURE.md](file:///home/
 
 ---
 
+## 🔒 How Privacy & Cryptography Works
+
+Stellar Whisper splits privacy, spending capability, and auditing access into separate mathematical concerns.
+
+### 🔑 The Three-Key Model
+Instead of relying on a single private key for both balance access and spending, Stellar Whisper derives three distinct keys from a user's master seed:
+
+```
+                  ┌───────────────────────────┐
+                  │     Master Seed Phrase    │
+                  └─────────────┬─────────────┘
+                                │
+                                ▼
+                  ┌───────────────────────────┐
+                  │    ZK Spending Key (sk)   │ ──► Generates ZK proofs client-side
+                  └─────────────┬─────────────┘     (NEVER shared or stored on-chain)
+                                │
+                 ┌──────────────┴──────────────┐
+                 ▼                             ▼
+   ┌───────────────────────────┐ ┌───────────────────────────┐
+   │    ZK Public Key (pk)     │ │     Viewing Key (vk)      │
+   └───────────────────────────┘ └───────────────────────────┘
+   Used to register note         Used to symmetrically encrypt/
+   commitments in Merkle tree    decrypt private note data
+```
+
+1.  **ZK Spending Key (`sk_spend`)**: The root secret key. It is used to generate UltraHonk spend proofs. **This key never leaves the client browser** and is never broadcast to any node or contract.
+2.  **ZK Public Key (`pk_zk`)**: Derivation: $\text{Poseidon}(sk_{spend})$. The public identity of the user inside the shielded pool. It binds ownership to note commitments without exposing the user's real Stellar wallet address.
+3.  **Viewing Key (`vk_view`)**: A separate cryptographic key used to encrypt and decrypt the note's balance and nonce metadata. Sharing this key gives read-only access to transaction histories.
+
+---
+
+### 🔍 Note Discovery (Scan-and-Decrypt vs. Centralized DB)
+Unlike traditional mixers that store user metadata on centralized servers (making them vulnerable to hacking and censorship), Stellar Whisper is fully decentralized. It utilizes a **Scan-and-Decrypt** ledger scanner:
+
+*   Whenever a deposit or transfer occurs, the smart contract registers the commitment hash and emits an `encrypted_note` ciphertext event on-chain.
+*   The wallet's browser client scans the blocks and tries to decrypt each `encrypted_note` using the user's local **Viewing Key**.
+*   If decryption succeeds, the client retrieves the note's `amount` and `nullifier_nonce`, reconstructs the commitment, verifies its position in the Merkle tree, and updates the local balance.
+*   If decryption fails, the note is ignored.
+*   **Result**: Complete trustless recovery. If you switch devices, you only need your viewing key to scan the ledger and recreate your wallet history from scratch.
+
+---
+
+### 🏛️ Compliance & Auditing Delegation
+The segregation of the **Spending Key** (control of funds) from the **Viewing Key** (auditing history) is the core compliance engine of Stellar Whisper. 
+
+*   Users can share their **Viewing Key** with an auditor, tax authority, or compliance officer.
+*   The auditor can scan the chain and decrypt that specific user's incoming and outgoing transaction details.
+*   However, because the auditor does not have the **ZK Spending Key**, they have **zero spending power** and cannot compromise or steal the user's funds.
+
+---
+
+### 🔄 Concrete Shielded Transfer Walkthrough
+Here is how a **10 USDC shielded transfer** from Alice to Bob unfolds across the client, contract, and recipient:
+
+| State / Actor | Action / Payload | Cryptographic Data |
+| :--- | :--- | :--- |
+| **1. Alice (Sender)** | **Computes locally & Submits** | 1. **ZK Proof (UltraHonk)**: Proves she owns a valid unspent note of $\ge 10$ USDC.<br>2. **Nullifier Hash**: Uniquely derived from her spending key to mark her note spent.<br>3. **Output Commitment 1**: Bob's note $\text{Poseidon}(pk_{zk}^{Bob}, \text{Poseidon}(10, nonce_1))$.<br>4. **Output Commitment 2**: Alice's change note $\text{Poseidon}(pk_{zk}^{Alice}, \text{Poseidon}(change, nonce_2))$.<br>5. **Encrypted Payload 1**: $\text{Encrypt}_{vk_{view}^{Bob}}(10, nonce_1)$.<br>6. **Encrypted Payload 2**: $\text{Encrypt}_{vk_{view}^{Alice}}(change, nonce_2)$. |
+| **2. Soroban Contract** | **Validates & Persists** | 1. Calls the **Verifier Contract** to verify the proof against the current Merkle tree root.<br>2. Validates that the submitted Nullifier Hash hasn't been spent before, then saves it to prevent double-spending.<br>3. Inserts the two output commitments as new leaves in the Merkle Tree.<br>4. Emits the encrypted payloads as ledger events. |
+| **3. Bob (Recipient)** | **Scans & Receives** | 1. Scans incoming ledger events via the indexer.<br>2. Uses his local `Viewing Key` to decrypt the encrypted payload, exposing $10$ USDC and $nonce_1$.<br>3. Computes the note commitment and confirms it exists in the Merkle Tree.<br>4. Bob's wallet registers a new unspent note of $10$ USDC, ready to be spent. |
+
+---
+
 ## 📁 Repository Layout
 
 ```
