@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { scValToNative, xdr } from '@stellar/stellar-sdk';
 import { DEFAULT_CONFIG } from '../../config/constants';
+import { getOnChainZeroHash, computeLatestMerkleRootOnChain } from '../../lib/merkle';
 
 export function PoolStats() {
   const [tvl, setTvl] = useState<number>(0);
@@ -10,11 +11,28 @@ export function PoolStats() {
   const [isLive, setIsLive] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
+  // Detailed Modal states
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [copiedText, setCopiedText] = useState<string>('');
+  const [depositCount, setDepositCount] = useState<number>(0);
+  const [transferCount, setTransferCount] = useState<number>(0);
+  const [withdrawalCount, setWithdrawalCount] = useState<number>(0);
+  const [merkleRoot, setMerkleRoot] = useState<string>('');
+  const [lastSyncedLedger, setLastSyncedLedger] = useState<number>(0);
+
   // Fallback demo values if indexer is offline
   const DEMO_TVL = 14200000;
   const DEMO_VOLUME = 1820000;
   const DEMO_VOL_CHANGE = 4.2;
   const DEMO_ANON_SET = 18402;
+  const DEMO_DEPOSITS = 8402;
+  const DEMO_TRANSFERS = 6200;
+  const DEMO_WITHDRAWALS = 3800;
+  const DEMO_ROOT = "1a8fb215e982181cf8c8c8d88e0a293b4562c1d00c3b52d9a7f3efc1b2d03efc";
+
+  // Pre-calculate default empty root
+  const defaultRootBytes = getOnChainZeroHash(16);
+  const DEFAULT_ROOT = Array.from(defaultRootBytes).map((b: number) => b.toString(16).padStart(2, '0')).join('');
 
   useEffect(() => {
     let active = true;
@@ -34,6 +52,10 @@ export function PoolStats() {
         let anonSet = 0;
         let vol24h = 0;
         let volPrev = 0;
+        let deps = 0;
+        let txs = 0;
+        let wds = 0;
+        const allCommitmentsBytes: Uint8Array[] = [];
 
         const now = Date.now();
         const oneDayAgo = now - 24 * 60 * 60 * 1000;
@@ -73,6 +95,13 @@ export function PoolStats() {
             if (eventType === "deposit") {
               calculatedTvl += amount;
               anonSet += 1;
+              deps += 1;
+              const commitmentVal = valData && typeof valData === 'object' 
+                ? (valData.commitment || valData.Commitment || (Array.isArray(valData) ? valData[0] : undefined)) 
+                : undefined;
+              if (commitmentVal) {
+                allCommitmentsBytes.push(new Uint8Array(commitmentVal as any));
+              }
               
               if (eventTime >= oneDayAgo) {
                 vol24h += amount;
@@ -81,8 +110,17 @@ export function PoolStats() {
               }
             } else if (eventType === "shielded_output") {
               anonSet += 1;
+              const commitmentVal = valData && typeof valData === 'object' 
+                ? (valData.commitment || valData.Commitment || (Array.isArray(valData) ? valData[0] : undefined)) 
+                : undefined;
+              if (commitmentVal) {
+                allCommitmentsBytes.push(new Uint8Array(commitmentVal as any));
+              }
+            } else if (eventType === "shielded_transfer") {
+              txs += 1;
             } else if (eventType === "withdrawal") {
               calculatedTvl -= amount;
+              wds += 1;
               
               if (eventTime >= oneDayAgo) {
                 vol24h += amount;
@@ -95,17 +133,31 @@ export function PoolStats() {
           }
         }
 
+        // Dynamically compute Merkle root from all active commitments
+        let calculatedRoot = DEFAULT_ROOT;
+        if (allCommitmentsBytes.length > 0) {
+          calculatedRoot = await computeLatestMerkleRootOnChain(allCommitmentsBytes);
+        }
+
         if (active) {
           setTvl(Math.max(0, calculatedTvl));
           setAnonymitySet(anonSet);
           setVolume24h(vol24h);
           
-          if (volPrev > 0) {
+          if (vol24h === 0) {
+            setVolChange(0);
+          } else if (volPrev > 0) {
             const change = ((vol24h - volPrev) / volPrev) * 100;
             setVolChange(change);
           } else {
-            setVolChange(vol24h > 0 ? 100 : 0);
+            setVolChange(100);
           }
+
+          setDepositCount(deps);
+          setTransferCount(txs);
+          setWithdrawalCount(wds);
+          setMerkleRoot(calculatedRoot);
+          setLastSyncedLedger(data.lastSyncedLedger || 0);
 
           setIsLive(true);
           setIsLoading(false);
@@ -137,81 +189,244 @@ export function PoolStats() {
     return `$${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC`;
   };
 
+  const triggerCopy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedText(text);
+    setTimeout(() => setCopiedText(''), 1500);
+  };
+
   const currentTvl = isLive ? tvl : DEMO_TVL;
   const currentVolume = isLive ? volume24h : DEMO_VOLUME;
   const currentVolChange = isLive ? volChange : DEMO_VOL_CHANGE;
   const currentAnonSet = isLive ? anonymitySet : DEMO_ANON_SET;
 
+  const currentDeposits = isLive ? depositCount : DEMO_DEPOSITS;
+  const currentTransfers = isLive ? transferCount : DEMO_TRANSFERS;
+  const currentWithdrawals = isLive ? withdrawalCount : DEMO_WITHDRAWALS;
+  const currentRoot = isLive ? (merkleRoot || DEFAULT_ROOT) : DEMO_ROOT;
+
+  const totalCount = currentDeposits + currentTransfers + currentWithdrawals;
+
   return (
-    <div className="col-span-12 lg:col-span-4 glass-panel rounded-lg p-6 glass-inner-stroke flex flex-col bg-surface-container-high/40 relative">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex flex-col">
-          <h3 className="font-bold text-lg text-white">Invisible Pool</h3>
-          <div className="flex items-center gap-1.5 mt-1">
-            <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-green-400 animate-pulse' : 'bg-amber-400'}`}></span>
-            <span className="text-[10px] font-mono font-bold tracking-wider text-[#cfc2d7]">
-              {isLoading ? 'CONNECTING...' : isLive ? 'LIVE DATA' : 'DEMO MODE'}
-            </span>
-          </div>
-        </div>
-        <span className="material-symbols-outlined text-[#00dce5]">analytics</span>
-      </div>
-      
-      {isLoading ? (
-        <div className="flex-1 flex flex-col items-center justify-center py-12 space-y-3">
-          <div className="w-8 h-8 border-2 border-[#00dce5] border-t-transparent rounded-full animate-spin"></div>
-          <span className="text-xs font-mono text-[#cfc2d7]">Connecting to indexer...</span>
-        </div>
-      ) : (
-        <div className="space-y-6 flex-1 animate-fade-in">
-          <div>
-            <div className="flex justify-between text-xs mb-2">
-              <span className="text-[#cfc2d7]">Pool TVL</span>
-              <span className="text-white font-bold font-mono">
-                {isLive ? formatCurrency(currentTvl, false) : `$1.42B`}
+    <>
+      <div className="col-span-12 lg:col-span-4 glass-panel rounded-lg p-6 glass-inner-stroke flex flex-col bg-surface-container-high/40 relative">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex flex-col">
+            <h3 className="font-bold text-lg text-white">Invisible Pool</h3>
+            <div className="flex items-center gap-1.5 mt-1">
+              <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-green-400 animate-pulse' : 'bg-amber-400'}`}></span>
+              <span className="text-[10px] font-mono font-bold tracking-wider text-[#cfc2d7]">
+                {isLoading ? 'CONNECTING...' : isLive ? 'LIVE DATA' : 'DEMO MODE'}
               </span>
             </div>
-            <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-              <div 
-                className="h-full bg-[#8a2be2] shadow-[0_0_10px_#8a2be2] transition-all duration-500" 
-                style={{ width: isLive ? `${Math.min(100, Math.max(10, (currentTvl / 1000) * 100))}%` : '72%' }}
-              ></div>
-            </div>
           </div>
-          
-          <div className="grid grid-cols-1 gap-3">
-            <div className="p-4 rounded bg-white/5 border border-white/5 flex items-center justify-between">
-              <div>
-                <p className="text-[10px] text-[#cfc2d7]">24h Volume</p>
-                <p className="text-sm font-bold text-white font-mono">
-                  {formatCurrency(currentVolume, !isLive)}
-                </p>
+          <span className="material-symbols-outlined text-[#00dce5]">analytics</span>
+        </div>
+        
+        {isLoading ? (
+          <div className="flex-1 flex flex-col items-center justify-center py-12 space-y-3">
+            <div className="w-8 h-8 border-2 border-[#00dce5] border-t-transparent rounded-full animate-spin"></div>
+            <span className="text-xs font-mono text-[#cfc2d7]">Connecting to indexer...</span>
+          </div>
+        ) : (
+          <div className="space-y-6 flex-1 animate-fade-in">
+            <div>
+              <div className="flex justify-between text-xs mb-2">
+                <span className="text-[#cfc2d7]">Pool TVL</span>
+                <span className="text-white font-bold font-mono">
+                  {isLive ? formatCurrency(currentTvl, false) : `$1.42B`}
+                </span>
               </div>
-              <span className={`text-xs font-semibold font-mono ${currentVolChange >= 0 ? 'text-[#00dce5]' : 'text-red-400'}`}>
-                {currentVolChange >= 0 ? '+' : ''}{currentVolChange.toFixed(1)}%
-              </span>
+              <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-[#8a2be2] shadow-[0_0_10px_#8a2be2] transition-all duration-500" 
+                  style={{ width: isLive ? `${Math.min(100, Math.max(10, (currentTvl / 1000) * 100))}%` : '72%' }}
+                ></div>
+              </div>
             </div>
             
-            <div className="p-4 rounded bg-white/5 border border-white/5 flex items-center justify-between">
-              <div>
-                <p className="text-[10px] text-[#cfc2d7]">Anonymity Set</p>
-                <p className="text-sm font-bold text-white font-mono">
-                  {currentAnonSet.toLocaleString()}
-                </p>
+            <div className="grid grid-cols-1 gap-3">
+              <div className="p-4 rounded bg-white/5 border border-white/5 flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] text-[#cfc2d7]">24h Volume</p>
+                  <p className="text-sm font-bold text-white font-mono">
+                    {formatCurrency(currentVolume, !isLive)}
+                  </p>
+                </div>
+                <span className={`text-xs font-semibold font-mono ${currentVolChange >= 0 ? 'text-[#00dce5]' : 'text-red-400'}`}>
+                  {currentVolChange >= 0 ? '+' : ''}{currentVolChange.toFixed(1)}%
+                </span>
               </div>
-              <span className="material-symbols-outlined text-[#00dce5] text-sm">verified</span>
+              
+              <div className="p-4 rounded bg-white/5 border border-white/5 flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] text-[#cfc2d7]">Anonymity Set</p>
+                  <p className="text-sm font-bold text-white font-mono">
+                    {currentAnonSet.toLocaleString()}
+                  </p>
+                </div>
+                <span className="material-symbols-outlined text-[#00dce5] text-sm">verified</span>
+              </div>
             </div>
+          </div>
+        )}
+        
+        <button 
+          onClick={() => setIsModalOpen(true)}
+          className="mt-6 w-full py-2.5 text-xs font-bold text-[#00dce5] hover:text-white transition-colors flex items-center justify-center gap-1 cursor-pointer bg-transparent border-none"
+        >
+          View Detailed Metrics
+          <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+        </button>
+      </div>
+
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fade-in">
+          <div className="w-full max-w-lg glass-panel rounded-lg p-6 glass-inner-stroke bg-surface-container-high/90 relative text-left">
+            <button 
+              onClick={() => setIsModalOpen(false)}
+              className="absolute top-4 right-4 text-[#cfc2d7] hover:text-white transition-colors cursor-pointer bg-transparent border-none flex items-center"
+            >
+              <span className="material-symbols-outlined text-lg">close</span>
+            </button>
+
+            <div className="flex items-center gap-2 mb-6">
+              <span className="material-symbols-outlined text-[#00dce5] text-2xl">analytics</span>
+              <h3 className="font-bold text-xl text-white">Detailed Pool Metrics</h3>
+            </div>
+
+            <div className="space-y-6">
+              {/* Section 1: Network & Indexer */}
+              <div>
+                <h4 className="text-[10px] font-mono font-bold text-[#00dce5] uppercase tracking-wider mb-2.5">Ledger & Indexer Status</h4>
+                <div className="p-4 rounded bg-white/5 border border-white/5 space-y-3 font-mono text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[#cfc2d7]">Contract Address:</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-white truncate max-w-[180px]" title={DEFAULT_CONFIG.whisperContractId}>
+                        {DEFAULT_CONFIG.whisperContractId.slice(0, 10)}...{DEFAULT_CONFIG.whisperContractId.slice(-10)}
+                      </span>
+                      <button 
+                        onClick={() => triggerCopy(DEFAULT_CONFIG.whisperContractId)}
+                        className="text-[#00dce5] hover:text-white bg-transparent border-none cursor-pointer p-0.5 flex items-center"
+                        title="Copy Address"
+                      >
+                        <span className="material-symbols-outlined text-sm">
+                          {copiedText === DEFAULT_CONFIG.whisperContractId ? 'check' : 'content_copy'}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#cfc2d7]">Indexer URL:</span>
+                    <span className="text-white">http://localhost:8123</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#cfc2d7]">Sync Status:</span>
+                    <span className={isLive ? 'text-green-400 font-bold' : 'text-amber-400'}>
+                      {isLive ? 'CONNECTED' : 'DISCONNECTED (DEMO MODE)'}
+                    </span>
+                  </div>
+                  {isLive && (
+                    <div className="flex justify-between">
+                      <span className="text-[#cfc2d7]">Last Synced Ledger:</span>
+                      <span className="text-white font-mono">{lastSyncedLedger}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Section 2: Cryptographic State */}
+              <div>
+                <h4 className="text-[10px] font-mono font-bold text-[#8a2be2] uppercase tracking-wider mb-2.5">Cryptographic Configuration</h4>
+                <div className="p-4 rounded bg-white/5 border border-white/5 space-y-3 font-mono text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[#cfc2d7]">Current Merkle Root:</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-white truncate max-w-[180px]" title={currentRoot}>
+                        {currentRoot.slice(0, 10)}...{currentRoot.slice(-10)}
+                      </span>
+                      <button 
+                        onClick={() => triggerCopy(currentRoot)}
+                        className="text-[#8a2be2] hover:text-white bg-transparent border-none cursor-pointer p-0.5 flex items-center"
+                        title="Copy Root"
+                      >
+                        <span className="material-symbols-outlined text-sm">
+                          {copiedText === currentRoot ? 'check' : 'content_copy'}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#cfc2d7]">Tree Depth:</span>
+                    <span className="text-white">16 Levels (Max 65,536 commitments)</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#cfc2d7]">Proof System:</span>
+                    <span className="text-white">Aztec UltraHonk (Gemini+Shplonk+KZG)</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#cfc2d7]">Compliance Check:</span>
+                    <span className="text-[#00ff87] font-bold">OFAC Filter Enabled (Active)</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 3: Event Distribution */}
+              <div>
+                <h4 className="text-[10px] font-mono font-bold text-[#fface8] uppercase tracking-wider mb-2.5">Transaction Distribution</h4>
+                <div className="p-4 rounded bg-white/5 border border-white/5 space-y-4 text-xs">
+                  <div>
+                    <div className="flex justify-between mb-1.5 font-mono">
+                      <span className="text-[#cfc2d7]">Shielded Deposits:</span>
+                      <span className="text-white font-bold">{currentDeposits}</span>
+                    </div>
+                    <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-[#00dce5]" 
+                        style={{ width: `${totalCount > 0 ? (currentDeposits / totalCount) * 100 : 33.3}%` }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between mb-1.5 font-mono">
+                      <span className="text-[#cfc2d7]">Shielded Transfers:</span>
+                      <span className="text-white font-bold">{currentTransfers}</span>
+                    </div>
+                    <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-[#8a2be2]" 
+                        style={{ width: `${totalCount > 0 ? (currentTransfers / totalCount) * 100 : 33.3}%` }}
+                      ></div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between mb-1.5 font-mono">
+                      <span className="text-[#cfc2d7]">Shielded Withdrawals:</span>
+                      <span className="text-white font-bold">{currentWithdrawals}</span>
+                    </div>
+                    <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-[#fface8]" 
+                        style={{ width: `${totalCount > 0 ? (currentWithdrawals / totalCount) * 100 : 33.3}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <button 
+              onClick={() => setIsModalOpen(false)}
+              className="mt-6 w-full py-3 rounded bg-white/5 border border-white/10 hover:bg-white/10 text-white text-xs font-bold transition-all cursor-pointer"
+            >
+              Close Detailed Metrics
+            </button>
           </div>
         </div>
       )}
-      
-      <button 
-        onClick={() => alert(`Detailed metrics showing total volume, transaction distribution, and verifier contracts status.\n\nActive Contract ID: ${DEFAULT_CONFIG.whisperContractId}\nIndexer Connection: ${isLive ? "Online (Port 8123)" : "Offline (Using demo data)"}`)}
-        className="mt-6 w-full py-2.5 text-xs font-bold text-[#00dce5] hover:text-white transition-colors flex items-center justify-center gap-1 cursor-pointer bg-transparent border-none"
-      >
-        View Detailed Metrics
-        <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
-      </button>
-    </div>
+    </>
   );
 }
