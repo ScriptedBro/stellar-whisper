@@ -15,11 +15,15 @@ node_modules/
 .agent/
 .gemini/
 
-# Ignore all markdown files except README.md
+# Ignore all markdown files except README.md, ARCHITECTURE.md, and DESIGN.md
 *.md
 !README.md
 !readme.md
 !Readme.md
+!ARCHITECTURE.md
+!architecture.md
+!DESIGN.md
+!design.md
 
 # Indexer DB cache
 indexer/indexer_db.json
