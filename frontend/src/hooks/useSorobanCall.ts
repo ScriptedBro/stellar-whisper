@@ -19,7 +19,8 @@ export function useSorobanCall(whisperContractId: string) {
     methodName: string,
     args: any[],
     callback: (txHash?: string, txResult?: any) => void,
-    errorCallback: (err: string) => void
+    errorCallback: (err: string) => void,
+    useRelayer: boolean = false
   ) => {
     setIsProving(true);
     setProvingLogs([]);
@@ -27,6 +28,78 @@ export function useSorobanCall(whisperContractId: string) {
     try {
       const server = new rpc.Server("https://soroban-testnet.stellar.org");
       const { assembleTransaction } = rpc;
+
+      if (useRelayer) {
+        setProvingProgress(15);
+        addProvingLog("Initializing OpenZeppelin Channels transaction flow...");
+
+        try {
+          setProvingProgress(40);
+          addProvingLog("Serializing contract invocation for Relayer...");
+
+          const contract = new Contract(whisperContractId);
+          const callOp = contract.call(methodName, ...args) as any;
+          
+          // Bulletproof extraction of the host function XDR
+          let hostFunctionXdr: string;
+          if (callOp.func && typeof callOp.func.toXDR === 'function') {
+            hostFunctionXdr = callOp.func.toXDR("base64");
+          } else if (callOp.body && typeof callOp.body === 'function' && callOp.body().value && callOp.body().value().hostFunction) {
+            hostFunctionXdr = callOp.body().value().hostFunction().toXDR("base64");
+          } else {
+            throw new Error("Could not extract HostFunction XDR from contract call operation.");
+          }
+
+          setProvingProgress(65);
+          addProvingLog("Dispatching transaction to OpenZeppelin Channels Relayer proxy...");
+
+          const response = await fetch("http://localhost:8123/api/relay", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ func: hostFunctionXdr, auth: [] })
+          });
+
+          const data = await response.json();
+          if (!response.ok || !data.success) {
+            throw new Error(data.details || data.error || "Relay submission failed.");
+          }
+
+          setProvingProgress(85);
+          addProvingLog(`Transaction relayed! Hash: ${data.hash}. Awaiting blockchain consensus...`);
+
+          // Poll for transaction status on-chain
+          let status: string = "PENDING";
+          let txResult: any;
+          let attempts = 0;
+          while ((status === "PENDING" || status === "NOT_FOUND") && attempts < 30) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            try {
+              txResult = await server.getTransaction(data.hash);
+              status = txResult.status;
+            } catch (e) {
+              status = "NOT_FOUND";
+            }
+            attempts++;
+          }
+
+          if (status !== "SUCCESS") {
+            let errorDetails = "";
+            if (txResult && txResult.resultXdr) {
+              errorDetails = ` (Result XDR: ${txResult.resultXdr})`;
+            }
+            throw new Error(`Transaction execution failed on-chain with status ${status}.${errorDetails}`);
+          }
+
+          addProvingLog("Relayed transaction completed successfully!");
+          setProvingProgress(100);
+          setIsProving(false);
+          callback(data.hash, txResult);
+        } catch (err: any) {
+          setIsProving(false);
+          errorCallback(err.message || String(err));
+        }
+        return;
+      }
 
       setProvingProgress(10);
       addProvingLog("Initializing Freighter connection...");
