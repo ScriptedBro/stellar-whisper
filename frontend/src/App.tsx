@@ -10,7 +10,8 @@ import { useTransfers } from './hooks/useTransfers';
 import { Header } from './components/layout/Header';
 import { Sidebar } from './components/layout/Sidebar';
 import { SettingsModal } from './components/layout/SettingsModal';
-import { DepositStatusModal } from './components/layout/DepositStatusModal';
+import { TransactionStatusModal } from './components/layout/TransactionStatusModal';
+import { useNotification } from './context/NotificationContext';
 
 import { VaultDashboard } from './components/vault/VaultDashboard';
 import { DepositPanel } from './components/pool/DepositPanel';
@@ -20,6 +21,7 @@ import { CompliancePanel } from './components/compliance/CompliancePanel';
 export default function App() {
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'vault' | 'pool' | 'send' | 'compliance'>('vault');
+  const { showToast } = useNotification();
 
   // Deployment configuration state
   const [config] = useState<Config>(() => {
@@ -71,6 +73,13 @@ export default function App() {
   // Activity logs
   const [logs, setLogs] = useState<ActivityLog[]>([]);
 
+  // Sync activity logs from useNotes reconstructed logs
+  useEffect(() => {
+    if (notes.logs && notes.logs.length > 0) {
+      setLogs(notes.logs);
+    }
+  }, [notes.logs]);
+
   const transfers = useTransfers({
     userAddress: wallet.userAddress,
     zkPrivateKey: wallet.zkPrivateKey,
@@ -97,12 +106,12 @@ export default function App() {
   const fundWallet = async () => {
     if (!wallet.userAddress) return;
     try {
-      alert("Requesting testnet XLM funding from Friendbot...");
+      showToast("Requesting testnet XLM funding from Friendbot...", "info");
       await fetch(`https://friendbot.stellar.org/?addr=${wallet.userAddress}`);
-      alert("Funding successful! Refreshing balance...");
+      showToast("Funding successful! Refreshing balance...", "success");
       await balances.fetchBalances(wallet.userAddress);
     } catch (e: any) {
-      alert("Friendbot funding failed: " + e.message);
+      showToast("Friendbot funding failed: " + e.message, "error");
     }
   };
 
@@ -236,13 +245,25 @@ export default function App() {
       />
 
       {/* Deposit Status Modal */}
-      <DepositStatusModal 
+      <TransactionStatusModal 
+        type="deposit"
         status={transfers.depositStatus.status}
         amount={transfers.depositStatus.amount}
         txHash={transfers.depositStatus.txHash}
         commitment={transfers.depositStatus.commitment}
         error={transfers.depositStatus.error}
         onClose={() => transfers.setDepositStatus({ status: 'idle' })}
+      />
+
+      {/* Transfer / Withdraw Status Modal */}
+      <TransactionStatusModal 
+        type={transfers.transferStatus.type}
+        status={transfers.transferStatus.status}
+        amount={transfers.transferStatus.amount}
+        txHash={transfers.transferStatus.txHash}
+        nullifier={transfers.transferStatus.nullifier}
+        error={transfers.transferStatus.error}
+        onClose={() => transfers.setTransferStatus({ status: 'idle', type: 'transfer' })}
       />
 
       {/* Mobile Bottom Navigation */}
