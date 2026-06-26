@@ -1,3 +1,5 @@
+import { useNotification } from '../../context/NotificationContext';
+
 interface ComplianceReportProps {
   report: {
     id: string;
@@ -14,12 +16,13 @@ interface ComplianceReportProps {
 }
 
 export function ComplianceReport({ report, onClear }: ComplianceReportProps) {
+  const { showToast } = useNotification();
   if (!report) return null;
 
   const copyPayload = () => {
     const payload = JSON.stringify(report, null, 2);
     navigator.clipboard.writeText(payload);
-    alert("Cryptographic attestation payload copied to clipboard!");
+    showToast("Cryptographic attestation payload copied to clipboard!", "success");
   };
 
   const isPass = report.status === 'VERIFIED (PASS)';

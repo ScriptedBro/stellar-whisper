@@ -5,6 +5,7 @@ import {
   signMessage as signFreighterMessage
 } from '@stellar/freighter-api';
 import { sha256, deriveViewingKey, derivePubkey, bytesToHexDirect } from '../lib/crypto';
+import { useNotification } from '../context/NotificationContext';
 
 export function useWallet() {
   const [isConnected, setIsConnected] = useState<boolean>(false);
@@ -12,6 +13,7 @@ export function useWallet() {
   const [zkPrivateKey, setZkPrivateKey] = useState<string>('');
   const [derivedViewingKeyStr, setDerivedViewingKeyStr] = useState<string>('');
   const [derivedPubkeyHex, setDerivedPubkeyHex] = useState<string>('');
+  const { showAlert } = useNotification();
 
   // Synchronize ZK private key with sessionStorage & derive viewing key and ZK public key
   useEffect(() => {
@@ -55,7 +57,7 @@ export function useWallet() {
       if (hasFreighter) {
         const accessResult = await requestFreighterAccess();
         if (accessResult.error) {
-          alert("Freighter connection rejected: " + accessResult.error);
+          showAlert("Connection Rejected", "Freighter connection rejected: " + accessResult.error, "error");
         } else if (accessResult.address) {
           const addr = accessResult.address;
           setUserAddress(addr);
@@ -76,14 +78,14 @@ export function useWallet() {
             }
           } catch (signErr: any) {
             console.error("ZK Key Derivation signature rejected/failed:", signErr);
-            alert("Signature rejected. ZK Private Key was not derived. You can still use the app, but shielding operations will use random commitments.");
+            showAlert("ZK Key Signature Rejected", "Signature rejected. ZK Private Key was not derived. You can still use the app, but shielding operations will use random commitments.", "warning");
           }
         }
       } else {
-        alert("Freighter Wallet not found. Please install the extension.");
+        showAlert("Freighter Wallet Required", "Freighter Wallet not found. Please install the extension.", "warning");
       }
     } catch (e: any) {
-      alert("Failed to connect Freighter: " + e.message);
+      showAlert("Connection Error", "Failed to connect Freighter: " + e.message, "error");
     }
   };
 
