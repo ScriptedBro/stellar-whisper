@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { rpc, scValToNative, xdr, Contract, Account, TransactionBuilder, Networks, nativeToScVal } from '@stellar/stellar-sdk';
-import type { PrivateNote } from '../types';
+import type { PrivateNote, ActivityLog } from '../types';
 import { 
   deriveViewingKey, 
   deriveNullifier, 
@@ -93,6 +93,27 @@ export function useNotes(
   const [syncProgress, setSyncProgress] = useState<string>('');
   const [allCommitments, setAllCommitments] = useState<string[]>([]);
   const commitmentsStorageKey = userAddress ? `whisper_commitments_${userAddress}` : '';
+  
+  const [reconstructedLogs, setReconstructedLogs] = useState<ActivityLog[]>([]);
+  const logsStorageKey = userAddress ? `whisper_activity_logs_${userAddress}` : '';
+
+  // Load activity logs from localStorage on connection
+  useEffect(() => {
+    if (!userAddress) {
+      setReconstructedLogs([]);
+      return;
+    }
+    const storedLogs = localStorage.getItem(logsStorageKey);
+    if (storedLogs) {
+      try {
+        setReconstructedLogs(JSON.parse(storedLogs));
+      } catch (e) {
+        console.error("Failed to parse stored logs:", e);
+      }
+    } else {
+      setReconstructedLogs([]);
+    }
+  }, [userAddress, logsStorageKey]);
 
   // Reset notes if contract ID changed (redeployment check) or load from localStorage on connection
   useEffect(() => {
@@ -200,13 +221,15 @@ export function useNotes(
     }
   }, [notes, selectedNoteCommitment]);
 
-  const syncNotesFromChain = async () => {
+  const syncNotesFromChain = async (isSilent: boolean = false) => {
     if (!userAddress || !zkPrivateKey) {
       return;
     }
     
-    setIsSyncing(true);
-    setSyncProgress('Connecting to Soroban RPC...');
+    if (!isSilent) {
+      setIsSyncing(true);
+      setSyncProgress('Connecting to Soroban RPC...');
+    }
     
     try {
       const scanViewingKey = await deriveViewingKey(zkPrivateKey);
@@ -239,7 +262,7 @@ export function useNotes(
       }
 
       if (!usedIndexer) {
-        setSyncProgress(`Scanning blockchain history...`);
+        if (!isSilent) setSyncProgress(`Scanning blockchain history...`);
         console.log(`Syncing notes: querying contract ${whisperContractId} from ledger ${startLedger} to ${endLedger}`);
         try {
           events = await fetchContractEvents(server, whisperContractId, startLedger);
@@ -260,7 +283,7 @@ export function useNotes(
       }
       
       console.log(`Fetched ${events.length} events.`);
-      setSyncProgress(`Found ${events.length} contract events. Decrypting...`);
+      if (!isSilent) setSyncProgress(`Found ${events.length} contract events. Decrypting...`);
       
       const decryptedNotesMap = new Map<string, PrivateNote>();
       const spentNullifiers = new Set<string>();
@@ -489,14 +512,191 @@ export function useNotes(
       if (updateShieldedBalance) {
         updateShieldedBalance(unspentSum);
       }
+
+      // --- CANONICAL TRANSACTION HISTORY RECONSTRUCTION ---
+      const reconstructed: ActivityLog[] = [];
+      const noteNullifierMap = new Map<string, string>(); // commitment -> nullifierHex
+      const nullifierNoteMap = new Map<string, PrivateNote>(); // nullifierHex -> note
       
-      setSyncProgress(`Sync complete! Recovered ${finalNotesList.length} notes (${activeNotes.length} unspent).`);
-      setTimeout(() => setSyncProgress(''), 5000);
+      for (const note of finalNotesList) {
+        const nullifierBytes = await deriveNullifier(zkPrivateKey, note.nullifierNonce);
+        const nullifierHex = bytesToHexDirect(nullifierBytes);
+        noteNullifierMap.set(note.commitment, nullifierHex);
+        nullifierNoteMap.set(nullifierHex, note);
+      }
+
+      // Group events by txHash
+      const txEventsMap = new Map<string, any[]>();
+      for (const event of events) {
+        if (event.txHash) {
+          if (!txEventsMap.has(event.txHash)) {
+            txEventsMap.set(event.txHash, []);
+          }
+          txEventsMap.get(event.txHash)!.push(event);
+        }
+      }
+
+      for (const [txHash, txEvents] of txEventsMap.entries()) {
+        let weSpent = false;
+        let spentNote: PrivateNote | undefined;
+        let weReceivedNotes: PrivateNote[] = [];
+        let isWithdrawal = false;
+        let isDeposit = false;
+        let depositAmount = 0;
+        let depositCommitment = "";
+        let eventTimestamp = "Just now";
+
+        for (const event of txEvents) {
+          if (event.ledgerClosedAt) {
+            const d = new Date(event.ledgerClosedAt);
+            eventTimestamp = d.toLocaleString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            });
+          }
+
+          try {
+            const topics = (event.topic || []).map((t: any) => scValToNative(xdr.ScVal.fromXDR(t as any, "base64")));
+            const rawEventType = topics[0];
+            let eventType = "";
+            if (typeof rawEventType === 'string') {
+              eventType = rawEventType;
+            } else if (rawEventType && (rawEventType instanceof Uint8Array)) {
+              eventType = new TextDecoder().decode(rawEventType);
+            } else if (rawEventType && typeof rawEventType === 'object') {
+              if (rawEventType.constructor?.name === 'Buffer' || rawEventType.constructor?.name === 'Uint8Array') {
+                eventType = new TextDecoder().decode(Uint8Array.from(rawEventType));
+              } else {
+                eventType = rawEventType.toString();
+              }
+            } else if (rawEventType) {
+              eventType = String(rawEventType);
+            }
+
+            const valData = scValToNative(xdr.ScVal.fromXDR(event.value as any, "base64"));
+
+            if (eventType === "deposit") {
+              isDeposit = true;
+              const rawAmount = valData && typeof valData === 'object' ? (valData.amount || valData.Amount || 0n) : 0n;
+              depositAmount = Number(BigInt(rawAmount)) / 10000000;
+              const commitmentVal = valData && typeof valData === 'object' ? (valData.commitment || valData.Commitment) : undefined;
+              if (commitmentVal) {
+                depositCommitment = bytesToHex(commitmentVal);
+              }
+            } else if (eventType === "withdrawal") {
+              isWithdrawal = true;
+              const nullifierVal = valData && typeof valData === 'object' ? (valData.nullifier || valData.Nullifier) : undefined;
+              if (nullifierVal) {
+                const nullifierHex = bytesToHex(nullifierVal);
+                if (nullifierNoteMap.has(nullifierHex)) {
+                  weSpent = true;
+                  spentNote = nullifierNoteMap.get(nullifierHex);
+                }
+              }
+            } else if (eventType === "shielded_transfer") {
+              const nullifierVal = valData && typeof valData === 'object' ? (valData.nullifier || valData.Nullifier) : undefined;
+              if (nullifierVal) {
+                const nullifierHex = bytesToHex(nullifierVal);
+                if (nullifierNoteMap.has(nullifierHex)) {
+                  weSpent = true;
+                  spentNote = nullifierNoteMap.get(nullifierHex);
+                }
+              }
+            }
+          } catch (e) {
+            console.warn("Error parsing event in log reconstruction:", e);
+          }
+        }
+
+        // Check if we decrypted any received commitments in this tx
+        for (const note of decryptedNotesMap.values()) {
+          if (note.txHash === txHash) {
+            weReceivedNotes.push(note);
+          }
+        }
+
+        if (isDeposit && depositCommitment && decryptedNotesMap.has(depositCommitment)) {
+          reconstructed.push({
+            id: txHash + "-deposit",
+            type: 'deposit',
+            amount: depositAmount,
+            timestamp: eventTimestamp,
+            status: 'success',
+            txHash: txHash
+          });
+        } else if (weSpent && isWithdrawal && spentNote) {
+          reconstructed.push({
+            id: txHash + "-withdrawal",
+            type: 'transfer',
+            amount: spentNote.amount,
+            recipient: 'Public Account (Withdrawn)',
+            timestamp: eventTimestamp,
+            status: 'success',
+            txHash: txHash,
+            details: 'Withdrawal from shielded pool'
+          });
+        } else if (weSpent && spentNote) {
+          const changeNote = weReceivedNotes.find(n => n.commitment !== spentNote!.commitment);
+          const changeAmount = changeNote ? changeNote.amount : 0;
+          const sentAmount = spentNote.amount - changeAmount;
+
+          if (sentAmount > 0) {
+            reconstructed.push({
+              id: txHash + "-transfer-send",
+              type: 'transfer',
+              amount: sentAmount,
+              recipient: 'Shielded Account (Sent)',
+              timestamp: eventTimestamp,
+              status: 'success',
+              txHash: txHash,
+              details: 'Shielded transfer sent'
+            });
+          }
+        } else if (weReceivedNotes.length > 0 && !isDeposit) {
+          for (const note of weReceivedNotes) {
+            reconstructed.push({
+              id: txHash + "-transfer-receive-" + note.commitment.slice(0, 6),
+              type: 'transfer',
+              amount: note.amount,
+              recipient: 'Received (Shielded)',
+              timestamp: eventTimestamp,
+              status: 'success',
+              txHash: txHash,
+              details: 'Shielded transfer received'
+            });
+          }
+        }
+      }
+
+      // Sort by ledger order descending
+      const txLedgerMap = new Map<string, number>();
+      for (const event of events) {
+        if (event.txHash && event.ledger) {
+          txLedgerMap.set(event.txHash, event.ledger);
+        }
+      }
+      reconstructed.sort((a, b) => {
+        const ledgerA = txLedgerMap.get(a.txHash || "") || 0;
+        const ledgerB = txLedgerMap.get(b.txHash || "") || 0;
+        return ledgerB - ledgerA;
+      });
+
+      setReconstructedLogs(reconstructed);
+      localStorage.setItem(logsStorageKey, JSON.stringify(reconstructed));
+      
+      if (!isSilent) {
+        setSyncProgress(`Sync complete! Recovered ${finalNotesList.length} notes (${activeNotes.length} unspent).`);
+        setTimeout(() => setSyncProgress(''), 5000);
+      }
     } catch (err: any) {
       console.error("Error syncing events:", err);
-      setSyncProgress(`Sync failed: ${err.message || String(err)}`);
+      if (!isSilent) setSyncProgress(`Sync failed: ${err.message || String(err)}`);
     } finally {
-      setIsSyncing(false);
+      if (!isSilent) {
+        setIsSyncing(false);
+      }
     }
   };
 
@@ -517,6 +717,19 @@ export function useNotes(
     });
   };
 
+  // Background polling for real-time updates (every 5 seconds)
+  useEffect(() => {
+    if (!userAddress || !zkPrivateKey) return;
+
+    const interval = setInterval(() => {
+      if (!isSyncing) {
+        syncNotesFromChain(true);
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [userAddress, zkPrivateKey, isSyncing]);
+
   return {
     notes,
     setNotes,
@@ -527,6 +740,7 @@ export function useNotes(
     allCommitments,
     setAllCommitments,
     syncNotesFromChain,
-    importNotes
+    importNotes,
+    logs: reconstructedLogs
   };
 }
