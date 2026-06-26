@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { nativeToScVal, scValToNative, xdr, Contract, Account, TransactionBuilder, Networks, rpc } from '@stellar/stellar-sdk';
 import type { Config, ActivityLog, PrivateNote } from '../types';
 import { SANCTIONED_ADDRESSES } from '../config/constants';
+import { useNotification } from '../context/NotificationContext';
 import { 
   derivePubkey, 
   deriveCommitment, 
@@ -120,6 +121,7 @@ export function useTransfers({
   setLogs,
   setActiveTab
 }: UseTransfersProps) {
+  const { showAlert } = useNotification();
   const [depositAmount, setDepositAmount] = useState<string>('');
   const [transferAmount, setTransferAmount] = useState<string>('');
   const [recipientAddress, setRecipientAddress] = useState<string>('');
@@ -137,19 +139,27 @@ export function useTransfers({
     commitment?: string;
     error?: string;
   }>({ status: 'idle' });
+  const [transferStatus, setTransferStatus] = useState<{
+    status: 'idle' | 'success' | 'failed';
+    type: 'transfer' | 'withdraw';
+    amount?: number;
+    txHash?: string;
+    nullifier?: string;
+    error?: string;
+  }>({ status: 'idle', type: 'transfer' });
 
   const handleShieldDeposit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!depositAmount || isNaN(Number(depositAmount))) return;
     
     if (SANCTIONED_ADDRESSES.includes(userAddress)) {
-      alert("COMPLIANCE BLOCK: Funding source address is in the OFAC sanctions list.");
+      showAlert("Compliance Block", "COMPLIANCE BLOCK: Funding source address is in the OFAC sanctions list.", "error");
       return;
     }
     
     const amt = Number(depositAmount);
     if (amt > publicBalance) {
-      alert("Insufficient public balance.");
+      showAlert("Insufficient Balance", "Insufficient public balance.", "warning");
       return;
     }
 
@@ -281,26 +291,26 @@ export function useTransfers({
 
     const amt = Number(transferAmount);
     if (amt > shieldedBalance) {
-      alert("Insufficient shielded balance.");
+      showAlert("Insufficient Shielded Balance", "Insufficient shielded balance.", "warning");
       return;
     }
 
     if (isPrivateNoteTransfer) {
       if (!recipientZkPublicKey || recipientZkPublicKey.length !== 64) {
-        alert("Please enter a valid 64-character hex recipient ZK public key.");
+        showAlert("Invalid Key", "Please enter a valid 64-character hex recipient ZK public key.", "warning");
         return;
       }
       if (!recipientViewingKey || recipientViewingKey.length !== 64) {
-        alert("Please enter a valid 64-character hex recipient viewing key.");
+        showAlert("Invalid Key", "Please enter a valid 64-character hex recipient viewing key.", "warning");
         return;
       }
     } else {
       if (!recipientAddress) {
-        alert("Please enter a recipient Stellar address.");
+        showAlert("Recipient Required", "Please enter a recipient Stellar address.", "warning");
         return;
       }
       if (SANCTIONED_ADDRESSES.includes(recipientAddress)) {
-        alert("COMPLIANCE BLOCK: Recipient address is in the OFAC sanctions list.");
+        showAlert("Compliance Block", "COMPLIANCE BLOCK: Recipient address is in the OFAC sanctions list.", "error");
         return;
       }
     }
@@ -321,14 +331,14 @@ export function useTransfers({
     }
     
     if (!noteToSpend) {
-      alert("No unspent shielded notes available. Please shield assets first.");
+      showAlert("No Shielded Notes", "No unspent shielded notes available. Please shield assets first.", "warning");
       setIsProving(false);
       return;
     }
 
     const noteAmount = noteToSpend.amount;
     if (amt > noteAmount) {
-      alert(`No single private note can cover ${amt} USDC. Deposit a larger note or send a smaller amount.`);
+      showAlert("Note Too Small", `No single private note can cover ${amt} USDC. Deposit a larger note or send a smaller amount.`, "warning");
       setIsProving(false);
       return;
     }
@@ -344,7 +354,7 @@ export function useTransfers({
       console.warn(`=== Commitment not found! ===`);
       console.warn(`- target: ${targetNoteCommitment}`);
       console.warn(`- in allCommitments:`, allCommitments);
-      alert(`CRITICAL ERROR: Note commitment ${targetNoteCommitment} is not found in the on-chain commitments. The note store and chain events scan are desynced.`);
+      showAlert("Synchronizer Error", `CRITICAL ERROR: Note commitment ${targetNoteCommitment} is not found in the on-chain commitments. The note store and chain events scan are desynced.`, "error");
       setIsProving(false);
       return;
     }
@@ -458,7 +468,7 @@ export function useTransfers({
         "Sync notes again. If sync finds no contract events, redeploy/use a fresh Whisper contract and deposit again so the app can rebuild the full commitment tree."
       ].join("\n");
       addProvingLog(message);
-      alert(message);
+      showAlert("Merkle Tree Desync", message, "error");
       setIsProving(false);
       return;
     }
@@ -682,9 +692,21 @@ export function useTransfers({
         setRecipientAddress('');
         setRecipientZkPublicKey('');
         setRecipientViewingKey('');
+        setTransferStatus({
+          status: 'success',
+          type: isPrivateNoteTransfer ? 'transfer' : 'withdraw',
+          amount: amt,
+          txHash: txHash || '',
+          nullifier: bytesToHex(nullifierHashBytes)
+        });
       },
       (err) => {
-        alert("Shielded transfer failed: " + err);
+        setTransferStatus({
+          status: 'failed',
+          type: isPrivateNoteTransfer ? 'transfer' : 'withdraw',
+          amount: amt,
+          error: err
+        });
         setLogs(prev => [
           {
             id: Date.now().toString(),
@@ -861,6 +883,8 @@ export function useTransfers({
     setComplianceReport,
     depositStatus,
     setDepositStatus,
+    transferStatus,
+    setTransferStatus,
     handleShieldDeposit,
     handleShieldedTransfer,
     handleGenerateCompliance

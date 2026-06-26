@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { ActivityLog as ActivityLogType, PrivateNote } from '../../types';
 import { PoolStats } from './PoolStats';
 import { ActivityLog } from './ActivityLog';
+import { useNotification } from '../../context/NotificationContext';
 
 interface CopyButtonProps {
   text: string;
@@ -60,11 +61,12 @@ export function VaultDashboard({
   notes,
   importNotes
 }: VaultDashboardProps) {
+  const { showToast, showAlert } = useNotification();
   const activeNotes = notes.filter(n => !n.spent);
 
   const handleExportBackup = () => {
     if (notes.length === 0) {
-      alert("No notes available to export.");
+      showToast("No notes available to export.", "warning");
       return;
     }
     const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(
@@ -76,6 +78,7 @@ export function VaultDashboard({
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
+    showToast("Vault backup exported successfully!", "success");
   };
 
   const handleImportBackup = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -94,16 +97,16 @@ export function VaultDashboard({
           );
           if (isValid) {
             importNotes(parsed);
-            alert(`Successfully imported ${parsed.length} notes!`);
+            showToast(`Successfully imported ${parsed.length} notes!`, "success");
           } else {
-            alert("Invalid backup file format. Expected an array of PrivateNote objects.");
+            showAlert("Import Failed", "Invalid backup file format. Expected an array of PrivateNote objects.", "error");
           }
         } else {
-          alert("Invalid backup file format. Expected a JSON array.");
+          showAlert("Import Failed", "Invalid backup file format. Expected a JSON array.", "error");
         }
       } catch (err) {
         console.error("Failed to parse backup JSON:", err);
-        alert("Failed to parse backup file. Please make sure it is a valid JSON file.");
+        showAlert("Parse Failed", "Failed to parse backup file. Please make sure it is a valid JSON file.", "error");
       }
     };
     fileReader.readAsText(file);

@@ -50,8 +50,8 @@ export function PoolStats() {
         
         let calculatedTvl = 0;
         let anonSet = 0;
-        let vol24h = 0;
-        let volPrev = 0;
+        let vol24h_deposits = 0;
+        let vol24h_withdrawals = 0;
         let deps = 0;
         let txs = 0;
         let wds = 0;
@@ -59,7 +59,6 @@ export function PoolStats() {
 
         const now = Date.now();
         const oneDayAgo = now - 24 * 60 * 60 * 1000;
-        const twoDaysAgo = now - 48 * 60 * 60 * 1000;
 
         for (const event of events) {
           try {
@@ -104,9 +103,7 @@ export function PoolStats() {
               }
               
               if (eventTime >= oneDayAgo) {
-                vol24h += amount;
-              } else if (eventTime >= twoDaysAgo) {
-                volPrev += amount;
+                vol24h_deposits += amount;
               }
             } else if (eventType === "shielded_output") {
               anonSet += 1;
@@ -123,9 +120,7 @@ export function PoolStats() {
               wds += 1;
               
               if (eventTime >= oneDayAgo) {
-                vol24h += amount;
-              } else if (eventTime >= twoDaysAgo) {
-                volPrev += amount;
+                vol24h_withdrawals += amount;
               }
             }
           } catch (err) {
@@ -139,18 +134,27 @@ export function PoolStats() {
           calculatedRoot = await computeLatestMerkleRootOnChain(allCommitmentsBytes);
         }
 
+        // 24h volume = total activity (deposits + withdrawals)
+        const vol24h = vol24h_deposits + vol24h_withdrawals;
+        // Net 24h change = deposits - withdrawals
+        const netChange24h = vol24h_deposits - vol24h_withdrawals;
+
         if (active) {
-          setTvl(Math.max(0, calculatedTvl));
+          const poolTvl = Math.max(0, calculatedTvl);
+          setTvl(poolTvl);
           setAnonymitySet(anonSet);
           setVolume24h(vol24h);
           
+          // Percentage = net 24h change relative to starting TVL (standard growth rate)
+          const prevTvl = poolTvl - netChange24h;
           if (vol24h === 0) {
             setVolChange(0);
-          } else if (volPrev > 0) {
-            const change = ((vol24h - volPrev) / volPrev) * 100;
-            setVolChange(change);
+          } else if (prevTvl <= 0) {
+            // If the pool started empty but now has funds, growth is +100%
+            setVolChange(netChange24h > 0 ? 100 : 0);
           } else {
-            setVolChange(100);
+            const change = (netChange24h / prevTvl) * 100;
+            setVolChange(change);
           }
 
           setDepositCount(deps);
@@ -186,7 +190,9 @@ export function PoolStats() {
       if (val >= 1000) return `$${(val / 1000).toFixed(2)}K`;
       return `$${val.toFixed(2)}`;
     }
-    return `$${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC`;
+    const prefix = val < 0 ? '-' : '';
+    const absVal = Math.abs(val);
+    return `${prefix}$${absVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC`;
   };
 
   const triggerCopy = (text: string) => {
