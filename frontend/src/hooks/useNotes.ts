@@ -85,7 +85,8 @@ export function useNotes(
   userAddress: string, 
   zkPrivateKey: string, 
   whisperContractId: string,
-  updateShieldedBalance?: (bal: number) => void
+  updateShieldedBalances?: (usdcBal: number, xlmBal: number) => void,
+  usdcContractId: string = 'CCD7B5ENZPTMYOB7XZ6VYLCABAQ66TB4UY5BEAQWCZMHMNAXPWKBKXYR'
 ) {
   const [notes, setNotes] = useState<PrivateNote[]>([]);
   const [selectedNoteCommitment, setSelectedNoteCommitment] = useState<string>('');
@@ -121,8 +122,8 @@ export function useNotes(
       setNotes([]);
       setSelectedNoteCommitment('');
       setAllCommitments([]);
-      if (updateShieldedBalance) {
-        updateShieldedBalance(0);
+      if (updateShieldedBalances) {
+        updateShieldedBalances(0, 0);
       }
       return;
     }
@@ -132,13 +133,15 @@ export function useNotes(
       console.log(`Detected contract redeployment (from ${storedContractId} to ${whisperContractId}). Clearing local storage keys to avoid desync.`);
       localStorage.removeItem(`whisper_notes_${userAddress}`);
       localStorage.removeItem(`whisper_shielded_balance_${userAddress}`);
+      localStorage.removeItem(`whisper_shielded_balance_usdc_${userAddress}`);
+      localStorage.removeItem(`whisper_shielded_balance_xlm_${userAddress}`);
       localStorage.removeItem(`whisper_latest_root_${userAddress}`);
       localStorage.removeItem(`whisper_commitments_${userAddress}`);
       setNotes([]);
       setSelectedNoteCommitment('');
       setAllCommitments([]);
-      if (updateShieldedBalance) {
-        updateShieldedBalance(0);
+      if (updateShieldedBalances) {
+        updateShieldedBalances(0, 0);
       }
     } else {
       const stored = localStorage.getItem(`whisper_notes_${userAddress}`);
@@ -186,20 +189,24 @@ export function useNotes(
   // Synchronize shielded balance to the sum of active unspent note balances
   useEffect(() => {
     if (notes.length > 0) {
-      const unspentSum = notes
-        .filter(n => !n.spent)
+      const activeNotes = notes.filter(n => !n.spent);
+      const unspentUsdcSum = activeNotes
+        .filter(n => n.assetAddress !== 'CDLZ436FHGO726A56A3L77Z6IAGY7TKVIFH67IHX63D5KIL4S4NMM6SG')
         .reduce((sum, n) => sum + n.amount, 0);
-      if (updateShieldedBalance) {
-        updateShieldedBalance(unspentSum);
+      const unspentXlmSum = activeNotes
+        .filter(n => n.assetAddress === 'CDLZ436FHGO726A56A3L77Z6IAGY7TKVIFH67IHX63D5KIL4S4NMM6SG')
+        .reduce((sum, n) => sum + n.amount, 0);
+      if (updateShieldedBalances) {
+        updateShieldedBalances(unspentUsdcSum, unspentXlmSum);
       }
     } else if (userAddress) {
-      const key = `whisper_shielded_balance_${userAddress}`;
-      const stored = localStorage.getItem(key);
-      if (stored !== null && updateShieldedBalance) {
-        updateShieldedBalance(Number(stored));
+      const storedUsdc = localStorage.getItem(`whisper_shielded_balance_usdc_${userAddress}`);
+      const storedXlm = localStorage.getItem(`whisper_shielded_balance_xlm_${userAddress}`);
+      if (updateShieldedBalances) {
+        updateShieldedBalances(Number(storedUsdc || 0), Number(storedXlm || 0));
       }
     }
-  }, [notes, userAddress, updateShieldedBalance]);
+  }, [notes, userAddress, updateShieldedBalances]);
 
   // Auto-sync notes from blockchain on login/ZK Key Derivation
   useEffect(() => {
@@ -330,6 +337,11 @@ export function useNotes(
             console.log("  - commitmentHex:", commitmentHex);
             allCommitmentsBytes.push(new Uint8Array(commitmentVal as any));
             
+            const tokenVal = data && typeof data === 'object' 
+              ? (data.token || data.Token) 
+              : undefined;
+            const eventTokenAddress = tokenVal ? tokenVal.toString() : usdcContractId;
+
             const rawAmount = data && typeof data === 'object' 
               ? (data.amount || data.Amount || 0n) 
               : 0n;
@@ -354,7 +366,8 @@ export function useNotes(
                   commitment: commitmentHex,
                   spent: false,
                   txHash: event.txHash || '',
-                  timestamp: event.ledgerClosedAt || 'Just now'
+                  timestamp: event.ledgerClosedAt || 'Just now',
+                  assetAddress: eventTokenAddress
                 });
               } else {
                 console.log(`Failed to decrypt note for commitment ${commitmentHex} (belongs to another user's public key)`);

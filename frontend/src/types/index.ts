@@ -24,4 +24,5 @@ export interface PrivateNote {
   spent: boolean;
   txHash?: string;
   timestamp?: string;
+  assetAddress?: string;  // Stellar token contract address (USDC vs native XLM)
 }

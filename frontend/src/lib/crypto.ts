@@ -1,3 +1,5 @@
+import { Address } from '@stellar/stellar-sdk';
+
 // Convert hex string to Uint8Array
 export const hexToBytes = (hex: string): Uint8Array => {
   let cleanHex = hex.startsWith('0x') ? hex.slice(2) : hex;
@@ -61,6 +63,14 @@ export const bytesToBigInt = (bytes: Uint8Array): bigint => {
   return BigInt('0x' + hex);
 };
 
+// Computes asset ID from a Stellar address string: sha256(address.toXDR())
+export const getAssetId = async (addressString: string): Promise<Uint8Array> => {
+  const addr = new Address(addressString);
+  const xdrBytes = addr.toXDR();
+  const hash = await webCrypto.subtle.digest('SHA-256', xdrBytes);
+  return new Uint8Array(hash);
+};
+
 export const derivePubkey = async (zkPrivateKeyHex: string): Promise<Uint8Array> => {
   const secretKeyBytes = hexToBytes(zkPrivateKeyHex);
   const secretKeyBigInt = modScalarField(bytesToBigInt(secretKeyBytes));
@@ -75,16 +85,22 @@ export const hashOnChain = async (leftBytes: Uint8Array, rightBytes: Uint8Array)
   return bigIntToBytes32(hashBigInt);
 };
 
-// Derives commitment: poseidon_2(pubkey, poseidon_2(amount, nonce))
-// The nonce binds each commitment to a unique nullifier, preventing duplicate commitments
-// for the same (pubkey, amount) pair and preventing double-spend via nonce reuse.
-export const deriveCommitment = async (pubkeyBytes: Uint8Array, amountBigInt: bigint, nonceHex: string): Promise<Uint8Array> => {
+// Derives commitment: poseidon_2(pubkey, poseidon_2(poseidon_2(amount, nonce), asset_id))
+export const deriveCommitment = async (
+  pubkeyBytes: Uint8Array,
+  amountBigInt: bigint,
+  nonceHex: string,
+  assetIdBytes: Uint8Array
+): Promise<Uint8Array> => {
   const pubkeyBigInt = modScalarField(bytesToBigInt(pubkeyBytes));
   const amountField = modScalarField(amountBigInt);
   const nonceBytes = hexToBytes(nonceHex);
   const nonceBigInt = modScalarField(bytesToBigInt(nonceBytes));
+  const assetIdBigInt = modScalarField(bytesToBigInt(assetIdBytes));
+  
   const saltedAmount = poseidon.hash([amountField, nonceBigInt]);
-  const commitmentBigInt = poseidon.hash([pubkeyBigInt, saltedAmount]);
+  const assetSaltedAmount = poseidon.hash([saltedAmount, assetIdBigInt]);
+  const commitmentBigInt = poseidon.hash([pubkeyBigInt, assetSaltedAmount]);
   return bigIntToBytes32(commitmentBigInt);
 };
 

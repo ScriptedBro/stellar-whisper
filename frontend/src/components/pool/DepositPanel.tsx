@@ -7,6 +7,9 @@ interface DepositPanelProps {
   isConnected: boolean;
   connectWallet: () => Promise<void>;
   handleShieldDeposit: (e: React.FormEvent) => Promise<void>;
+  selectedAsset: 'USDC' | 'XLM';
+  setSelectedAsset: (asset: 'USDC' | 'XLM') => void;
+  publicBalance: number;
 }
 
 export function DepositPanel({
@@ -17,7 +20,10 @@ export function DepositPanel({
   provingLogs,
   isConnected,
   connectWallet,
-  handleShieldDeposit
+  handleShieldDeposit,
+  selectedAsset,
+  setSelectedAsset,
+  publicBalance
 }: DepositPanelProps) {
   return (
     <div className="max-w-[800px] mx-auto animate-fade-in">
@@ -26,29 +32,69 @@ export function DepositPanel({
         {/* Form column */}
         <div className="lg:col-span-7 space-y-6">
           <div className="glass-panel rounded-lg p-6 md:p-8 glass-inner-stroke">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#8a2be2]/20 border border-[#8a2be2]/30 mb-4 text-[#dcb8ff]">
-              <div className="w-1.5 h-1.5 rounded-full bg-[#00f4fe] privacy-pulse"></div>
-              <span className="text-[10px] font-mono uppercase tracking-wider">Commitment Engine</span>
+            <div className="flex items-center justify-between w-full mb-4">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#8a2be2]/20 border border-[#8a2be2]/30 text-[#dcb8ff]">
+                <div className="w-1.5 h-1.5 rounded-full bg-[#00f4fe] privacy-pulse"></div>
+                <span className="text-[10px] font-mono uppercase tracking-wider">Commitment Engine</span>
+              </div>
+
+              {/* Asset Selector */}
+              <div className="flex bg-white/5 p-1 rounded-full border border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setSelectedAsset('USDC')}
+                  className={`px-3 py-1 rounded-full text-[10px] font-bold tracking-wider transition-all cursor-pointer border-none ${
+                    selectedAsset === 'USDC' 
+                      ? 'bg-[#00f4fe] text-black shadow-[0_0_8px_rgba(0,244,254,0.4)]' 
+                      : 'text-[#cfc2d7] hover:text-white bg-transparent'
+                  }`}
+                >
+                  USDC
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedAsset('XLM')}
+                  className={`px-3 py-1 rounded-full text-[10px] font-bold tracking-wider transition-all cursor-pointer border-none ${
+                    selectedAsset === 'XLM' 
+                      ? 'bg-[#00f4fe] text-black shadow-[0_0_8px_rgba(0,244,254,0.4)]' 
+                      : 'text-[#cfc2d7] hover:text-white bg-transparent'
+                  }`}
+                >
+                  XLM
+                </button>
+              </div>
             </div>
             
             <h2 className="text-xl font-bold text-white mb-2">Shield Public Assets</h2>
             <p className="text-xs text-[#cfc2d7] leading-relaxed mb-6">
-              Lock your public stablecoins in the privacy pool. Whisper generates a secret nullifier client-side, computing a Poseidon commitment hash submitted to Soroban, hiding your assets.
+              Lock your public assets in the privacy pool. Whisper generates a secret nullifier client-side, computing a Poseidon commitment hash submitted to Soroban, hiding your assets.
             </p>
 
             <form onSubmit={handleShieldDeposit} className="space-y-4">
               <div className="space-y-2">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-[#cfc2d7] block">Amount to Shield (USDC)</label>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-[#cfc2d7] block">Amount to Shield ({selectedAsset})</label>
                 <div className="relative">
                   <input 
                     type="number"
-                    placeholder="Enter amount, e.g. 100"
+                    placeholder={`Enter amount of ${selectedAsset}, e.g. 100`}
                     value={depositAmount}
                     onChange={(e) => setDepositAmount(e.target.value)}
                     disabled={isProving || !isConnected}
                     className="w-full glass-input px-4 py-3 text-sm text-white rounded"
                   />
                 </div>
+                {isConnected && (
+                  <div className="flex justify-between text-[10px] text-[#cfc2d7] mt-1.5 font-mono">
+                    <span>Available: {publicBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })} {selectedAsset}</span>
+                    <button
+                      type="button"
+                      onClick={() => setDepositAmount(publicBalance.toString())}
+                      className="text-[#00f4fe] hover:underline cursor-pointer bg-transparent border-none p-0 font-mono text-[10px]"
+                    >
+                      MAX
+                    </button>
+                  </div>
+                )}
               </div>
 
               {!isConnected ? (
@@ -71,7 +117,7 @@ export function DepositPanel({
                   disabled={isProving}
                   className="w-full btn-primary py-3 rounded text-xs font-bold transition-all active:scale-95 disabled:opacity-50 cursor-pointer mt-4"
                 >
-                  {isProving ? "Calculating ZK-Proof..." : "Shield Assets"}
+                  {isProving ? "Calculating ZK-Proof..." : `Shield ${selectedAsset}`}
                 </button>
               )}
             </form>

@@ -15,7 +15,8 @@ import {
   bigIntToBytes32,
   sha256,
   decryptNote,
-  deriveViewingKey
+  deriveViewingKey,
+  getAssetId
 } from '../lib/crypto';
 import { constructMerklePath } from '../lib/merkle';
 import { Noir } from '@noir-lang/noir_js';
@@ -98,6 +99,7 @@ interface UseTransfersProps {
   config: Config;
   setLogs: React.Dispatch<React.SetStateAction<ActivityLog[]>>;
   setActiveTab: (tab: 'vault' | 'pool' | 'send' | 'compliance') => void;
+  selectedAsset: 'USDC' | 'XLM';
 }
 
 export function useTransfers({
@@ -120,7 +122,8 @@ export function useTransfers({
   addProvingLog,
   config,
   setLogs,
-  setActiveTab
+  setActiveTab,
+  selectedAsset
 }: UseTransfersProps) {
   const { showAlert } = useNotification();
   const [depositAmount, setDepositAmount] = useState<string>('');
@@ -164,6 +167,9 @@ export function useTransfers({
       return;
     }
 
+    const activeTokenContractId = selectedAsset === 'USDC' ? config.tokenContractId : 'CDLZ436FHGO726A56A3L77Z6IAGY7TKVIFH67IHX63D5KIL4S4NMM6SG';
+    const assetIdBytes = await getAssetId(activeTokenContractId);
+
     let commitmentBytes: Uint8Array;
     let nullifierNonceHex = '';
     let encryptedPayloadHex = '';
@@ -176,11 +182,12 @@ export function useTransfers({
       globalThis.crypto.getRandomValues(nonceBytes as any);
       nullifierNonceHex = bytesToHexDirect(nonceBytes);
 
-      commitmentBytes = await deriveCommitment(pubkeyBytes, rawAmount, nullifierNonceHex);
+      commitmentBytes = await deriveCommitment(pubkeyBytes, rawAmount, nullifierNonceHex, assetIdBytes);
 
       const note = {
         amount: amt,
-        nullifier_nonce: nullifierNonceHex
+        nullifier_nonce: nullifierNonceHex,
+        assetAddress: activeTokenContractId
       };
       
       try {
@@ -197,6 +204,7 @@ export function useTransfers({
     const rawAmount = BigInt(Math.floor(amt * 10000000));
     const amountScVal = nativeToScVal(rawAmount, { type: "i128" });
     const fromScVal = nativeToScVal(userAddress, { type: "address" });
+    const tokenScVal = nativeToScVal(activeTokenContractId, { type: "address" });
 
     const encryptedNoteBytes = encryptedPayloadHex 
       ? new Uint8Array(encryptedPayloadHex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16))) 
@@ -207,7 +215,7 @@ export function useTransfers({
 
     executeSorobanCall(
       "deposit",
-      [fromScVal, commitmentScVal, amountScVal, encryptedNoteScVal],
+      [fromScVal, tokenScVal, commitmentScVal, amountScVal, encryptedNoteScVal],
       async (txHash, txResult) => {
         try {
           if (txResult && txResult.returnValue) {
@@ -229,7 +237,8 @@ export function useTransfers({
             commitment: bytesToHex(commitmentBytes),
             spent: false,
             txHash: txHash || '',
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            assetAddress: activeTokenContractId
           };
           setNotes(prev => {
             const updated = [...prev, newNote];
@@ -323,8 +332,11 @@ export function useTransfers({
     addProvingLog("Initializing Aztec UltraHonk Prover engine...");
     addProvingLog("Fetching commitments list from ledger for path construction...");
 
+    const activeTokenContractId = selectedAsset === 'USDC' ? config.tokenContractId : 'CDLZ436FHGO726A56A3L77Z6IAGY7TKVIFH67IHX63D5KIL4S4NMM6SG';
+    const assetIdBytes = await getAssetId(activeTokenContractId);
+
     const unspentNotes = notes
-      .filter(n => !n.spent)
+      .filter(n => !n.spent && (selectedAsset === 'USDC' ? n.assetAddress !== 'CDLZ436FHGO726A56A3L77Z6IAGY7TKVIFH67IHX63D5KIL4S4NMM6SG' : n.assetAddress === 'CDLZ436FHGO726A56A3L77Z6IAGY7TKVIFH67IHX63D5KIL4S4NMM6SG'))
       .sort((a, b) => a.amount - b.amount);
     let noteToSpend = unspentNotes.find(n => n.amount >= amt);
     if (!noteToSpend) {
@@ -332,14 +344,14 @@ export function useTransfers({
     }
     
     if (!noteToSpend) {
-      showAlert("No Shielded Notes", "No unspent shielded notes available. Please shield assets first.", "warning");
+      showAlert("No Shielded Notes", `No unspent shielded ${selectedAsset} notes available. Please shield assets first.`, "warning");
       setIsProving(false);
       return;
     }
 
     const noteAmount = noteToSpend.amount;
     if (amt > noteAmount) {
-      showAlert("Note Too Small", `No single private note can cover ${amt} USDC. Deposit a larger note or send a smaller amount.`, "warning");
+      showAlert("Note Too Small", `No single private note can cover ${amt} ${selectedAsset}. Deposit a larger note or send a smaller amount.`, "warning");
       setIsProving(false);
       return;
     }
@@ -384,7 +396,7 @@ export function useTransfers({
     let recipientNonceHex = '';
 
     if (isPrivateNoteTransfer) {
-      addProvingLog(`Generating recipient shielded note of ${amt.toFixed(2)} USDC...`);
+      addProvingLog(`Generating recipient shielded note of ${amt.toFixed(2)} ${selectedAsset}...`);
       const recipientPubkeyBytes = hexToBytes(recipientZkPublicKey);
       const recipientRawAmount = BigInt(Math.floor(amt * 10000000));
       
@@ -392,12 +404,13 @@ export function useTransfers({
       globalThis.crypto.getRandomValues(recipientNonceBytes as any);
       recipientNonceHex = bytesToHexDirect(recipientNonceBytes);
 
-      const recipientCommitmentBytes = await deriveCommitment(recipientPubkeyBytes, recipientRawAmount, recipientNonceHex);
+      const recipientCommitmentBytes = await deriveCommitment(recipientPubkeyBytes, recipientRawAmount, recipientNonceHex, assetIdBytes);
       newCommitmentsList.push(recipientCommitmentBytes);
       
       const recipientNote = {
         amount: amt,
-        nullifier_nonce: recipientNonceHex
+        nullifier_nonce: recipientNonceHex,
+        assetAddress: activeTokenContractId
       };
       
       try {
@@ -408,7 +421,7 @@ export function useTransfers({
     }
 
     if (changeAmt > 0) {
-      addProvingLog(`Generating change note of ${changeAmt.toFixed(2)} USDC...`);
+      addProvingLog(`Generating change note of ${changeAmt.toFixed(2)} ${selectedAsset}...`);
       const senderPubkeyBytes = await derivePubkey(zkPrivateKey);
       const changeRawAmount = BigInt(Math.floor(changeAmt * 10000000));
       
@@ -416,12 +429,13 @@ export function useTransfers({
       globalThis.crypto.getRandomValues(changeNonceBytes as any);
       changeNonceHex = bytesToHexDirect(changeNonceBytes);
 
-      const changeCommitmentBytes = await deriveCommitment(senderPubkeyBytes, changeRawAmount, changeNonceHex);
+      const changeCommitmentBytes = await deriveCommitment(senderPubkeyBytes, changeRawAmount, changeNonceHex, assetIdBytes);
       newCommitmentsList.push(changeCommitmentBytes);
       
       const changeNote = {
         amount: changeAmt,
-        nullifier_nonce: changeNonceHex
+        nullifier_nonce: changeNonceHex,
+        assetAddress: activeTokenContractId
       };
       
       try {
@@ -639,9 +653,11 @@ export function useTransfers({
       newCommitmentsList.map(bytes => xdr.ScVal.scvBytes(Buffer.from(bytes)))
     );
 
+    const tokenScVal = nativeToScVal(activeTokenContractId, { type: "address" });
+
     executeSorobanCall(
       "transfer_or_withdraw",
-      [proofScVal, publicInputsScVal, recipientScVal, amountScVal, encryptedNotesScVec, newCommitmentsScVec],
+      [tokenScVal, proofScVal, publicInputsScVal, recipientScVal, amountScVal, encryptedNotesScVec, newCommitmentsScVec],
       async (txHash) => {
         const newCommitmentHexes = newCommitmentsList.map(bytes => bytesToHex(bytes));
         setAllCommitments(prev => [...prev, ...newCommitmentHexes]);
@@ -654,7 +670,8 @@ export function useTransfers({
             commitment: bytesToHex(changeCommitmentBytes),
             spent: false,
             txHash: txHash || '',
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            assetAddress: activeTokenContractId
           };
           setNotes(prev => {
             const updated = prev.map(n => n.commitment === targetNoteCommitment ? { ...n, spent: true } : n);

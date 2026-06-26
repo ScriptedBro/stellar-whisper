@@ -82,7 +82,7 @@ fn get_zero_hash(env: &Env, level: u32) -> BytesN<32> {
 
 #[contractimpl]
 impl Contract {
-    /// Initialize the contract with admin, stablecoin token, and the ZK verifier contract address.
+    /// Initialize the contract with admin, default token, and the ZK verifier contract address.
     pub fn initialize(env: Env, admin: Address, token: Address, verifier: Address) -> Result<(), ContractError> {
         if env.storage().instance().has(&DataKey::Admin) {
             return Err(ContractError::AlreadyInitialized);
@@ -107,8 +107,8 @@ impl Contract {
         Ok(())
     }
 
-    /// Deposit public stablecoins into the pool and register the commitment.
-    pub fn deposit(env: Env, from: Address, commitment: BytesN<32>, amount: i128, encrypted_note: Bytes) -> Result<BytesN<32>, ContractError> {
+    /// Deposit public tokens (USDC or native XLM) into the pool and register the commitment.
+    pub fn deposit(env: Env, from: Address, token: Address, commitment: BytesN<32>, amount: i128, encrypted_note: Bytes) -> Result<BytesN<32>, ContractError> {
         from.require_auth();
 
         if !env.storage().instance().has(&DataKey::Admin) {
@@ -128,10 +128,8 @@ impl Contract {
             return Err(ContractError::TreeFull);
         }
 
-        let token_addr: Address = env.storage().instance().get(&DataKey::Token).unwrap();
-
-        // 1. Transfer tokens from depositor to this contract vault (moved first)
-        let token_client = soroban_sdk::token::Client::new(&env, &token_addr);
+        // 1. Transfer tokens from depositor to this contract vault
+        let token_client = soroban_sdk::token::Client::new(&env, &token);
         token_client.transfer(&from, &env.current_contract_address(), &amount);
 
         // Enforce duplicate commitment check (collision prevention) after token transfer
@@ -182,6 +180,7 @@ impl Contract {
     /// Withdraw or transfer funds privately by verifying a ZK proof.
     pub fn transfer_or_withdraw(
         env: Env,
+        token: Address,
         proof: Bytes,
         public_inputs: Vec<BytesN<32>>,
         recipient: Address,
@@ -217,7 +216,8 @@ impl Contract {
         // public_inputs[4]: public_recipient_hash
         // public_inputs[5]: output_commitment_1
         // public_inputs[6]: output_commitment_2
-        if public_inputs.len() < 7 {
+        // public_inputs[7]: asset_id
+        if public_inputs.len() < 8 {
             return Err(ContractError::ProofVerificationFailed);
         }
 
@@ -228,6 +228,15 @@ impl Contract {
         let public_recipient_hash_input = public_inputs.get(4).unwrap();
         let output_commitment_1_input = public_inputs.get(5).unwrap();
         let output_commitment_2_input = public_inputs.get(6).unwrap();
+        let asset_id_input = public_inputs.get(7).unwrap();
+
+        // Verify that the token matches the public input asset_id
+        let token_xdr = token.clone().to_xdr(&env);
+        let token_hash = env.crypto().sha256(&token_xdr);
+        let expected_asset_id = BytesN::from_array(&env, &token_hash.to_array());
+        if asset_id_input != expected_asset_id {
+            return Err(ContractError::ProofVerificationFailed);
+        }
 
         // 1. Verify that the Merkle root is valid (i.e. has been created by a deposit/transfer)
         if !env.storage().persistent().has(&DataKey::Roots(merkle_root.clone())) {
@@ -384,8 +393,7 @@ impl Contract {
 
         // 8. Transfer funds to the recipient if it is not the contract itself (internal shielded transfer/change)
         if recipient != env.current_contract_address() {
-            let token_addr: Address = env.storage().instance().get(&DataKey::Token).unwrap();
-            let token_client = soroban_sdk::token::Client::new(&env, &token_addr);
+            let token_client = soroban_sdk::token::Client::new(&env, &token);
             token_client.transfer(&env.current_contract_address(), &recipient, &amount);
         }
 
