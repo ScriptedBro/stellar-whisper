@@ -207,6 +207,28 @@ Open [http://localhost:5173](http://localhost:5173) in your browser to access th
 
 ---
 
+## ⚡ Gasless Transaction Relayer (OpenZeppelin Channels)
+
+Stellar Whisper integrates **OpenZeppelin's managed Stellar Channels service** to enable fully gasless and anonymous shielded transfers and withdrawals.
+
+### 🛡️ How it Works
+1. **Off-Chain Proof Generation:** When you execute a shielded transfer or withdrawal, the frontend generates an Aztec UltraHonk proof client-side and serializes the contract invocation's **HostFunction XDR**.
+2. **Signature-Free Invocation:** Because note ownership and value conservation are authorized entirely by the Zero-Knowledge proof, **no user wallet signature is required** to execute the transaction.
+3. **Secure Proxy Relay:** The frontend dispatches the unsigned host function XDR to the local **Indexer proxy endpoint** (`/api/relay`). The indexer securely appends your OpenZeppelin API Key and forwards the payload to the OpenZeppelin Channels Service. This prevents your private API key from ever being exposed to the browser.
+4. **Sponsor Fee-Bump Envelopes:** The OpenZeppelin service wraps the contract call inside a sponsored **fee-bump transaction envelope** and broadcasts it to the Stellar Soroban Testnet.
+5. **Absolute Unlinkability:** The transaction is completed without the user needing to pay network gas fees or hold any XLM. This removes the possibility of a "gas funding source" correlation attack, ensuring absolute cryptographic unlinkability and a seamless, premium UX.
+
+### 🔑 Setup Instructions
+To enable gasless relaying on the Stellar Testnet:
+1. **Generate a free API Key:** Visit [https://channels.openzeppelin.com/testnet/gen](https://channels.openzeppelin.com/testnet/gen) in your browser to instantly generate a Testnet Channels API Key.
+2. **Add to Environment:** Save the key in your `frontend/.env` file:
+   ```env
+   OPENZEPPELIN_CHANNELS_API_KEY="your_generated_api_key_here"
+   ```
+3. **Start the workspace:** Run `npm run dev`. The indexer will securely load the key and automatically route all shielded send/withdraw operations through the relayer.
+
+---
+
 ## 🔒 Security & Compliance Disclaimer
 
 Stellar Whisper is a zero-knowledge remittance protocol designed for private stablecoin transfers. 

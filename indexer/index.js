@@ -4,9 +4,48 @@ import { fileURLToPath } from 'url';
 import express from 'express';
 import cors from 'cors';
 import { rpc } from '@stellar/stellar-sdk';
+import { ChannelsClient } from '@openzeppelin/relayer-plugin-channels';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Zero-dependency .env parser to check multiple directories
+function loadEnv() {
+  const envPaths = [
+    path.join(__dirname, '../frontend/.env'),
+    path.join(__dirname, '.env'),
+    path.join(__dirname, '../.env')
+  ];
+  for (const envPath of envPaths) {
+    if (fs.existsSync(envPath)) {
+      try {
+        const envConfig = fs.readFileSync(envPath, 'utf8');
+        envConfig.split('\n').forEach(line => {
+          const cleanLine = line.split('#')[0].trim();
+          if (!cleanLine) return;
+          const match = cleanLine.match(/^([\w.-]+)\s*=\s*(.*)?$/);
+          if (match) {
+            const key = match[1];
+            let val = match[2] || '';
+            if (val.startsWith('"') && val.endsWith('"')) {
+              val = val.substring(1, val.length - 1);
+            } else if (val.startsWith("'") && val.endsWith("'")) {
+              val = val.substring(1, val.length - 1);
+            }
+            if (!process.env[key]) {
+              process.env[key] = val;
+            }
+          }
+        });
+      } catch (e) {
+        console.error(`Failed to read .env at ${envPath}:`, e);
+      }
+    }
+  }
+}
+
+// Load environment variables
+loadEnv();
 
 const DEPLOYED_PATH = path.join(__dirname, '../frontend/src/config/deployed.json');
 const DB_PATH = path.join(__dirname, 'indexer_db.json');
@@ -16,6 +55,23 @@ const PORT = process.env.PORT || 8123;
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Initialize OpenZeppelin Channels client if API key is provided
+let relayerClient = null;
+const apiKey = process.env.OPENZEPPELIN_CHANNELS_API_KEY || process.env.CHANNELS_API_KEY;
+if (apiKey) {
+  try {
+    relayerClient = new ChannelsClient({
+      baseUrl: "https://channels.openzeppelin.com/testnet",
+      apiKey: apiKey
+    });
+    console.log("🚀 OpenZeppelin Channels Relayer Client initialized for Soroban Testnet!");
+  } catch (e) {
+    console.error("❌ Failed to initialize OpenZeppelin Channels Client:", e);
+  }
+} else {
+  console.log("⚠️ OPENZEPPELIN_CHANNELS_API_KEY is not set. Relayer transaction submissions will return instructions.");
+}
 
 // Initialize database
 let db = {
@@ -217,6 +273,48 @@ app.post('/api/reset', (req, res) => {
   db.events = [];
   saveDb();
   res.json({ success: true });
+});
+
+app.post('/api/relay', async (req, res) => {
+  const { func, auth } = req.body;
+  if (!func) {
+    return res.status(400).json({ error: "Missing 'func' parameter (host function XDR)." });
+  }
+
+  const activeApiKey = process.env.OPENZEPPELIN_CHANNELS_API_KEY || process.env.CHANNELS_API_KEY;
+  if (!activeApiKey) {
+    return res.status(400).json({
+      error: "Relayer API Key Not Configured",
+      details: "To use the shielded relayer, please obtain a free Stellar Channels API Key by visiting https://channels.openzeppelin.com/testnet/gen, then add OPENZEPPELIN_CHANNELS_API_KEY=your_key to your frontend/.env file and restart the application."
+    });
+  }
+
+  if (!relayerClient) {
+    try {
+      relayerClient = new ChannelsClient({
+        baseUrl: "https://channels.openzeppelin.com/testnet",
+        apiKey: activeApiKey
+      });
+    } catch (e) {
+      return res.status(500).json({ error: "Failed to initialize OpenZeppelin Channels Client", details: e.message });
+    }
+  }
+
+  try {
+    console.log("⚡ Relaying Soroban transaction via OpenZeppelin Stellar Channels...");
+    const result = await relayerClient.submitSorobanTransaction({
+      func,
+      auth: auth || []
+    });
+    console.log(`✅ Relay successful! Transaction Hash: ${result.hash}`);
+    return res.json({ success: true, hash: result.hash });
+  } catch (err) {
+    console.error("❌ Relay submission failed:", err);
+    return res.status(500).json({
+      error: "OpenZeppelin Channels relay failed",
+      details: err.message || String(err)
+    });
+  }
 });
 
 // Start server and indexer

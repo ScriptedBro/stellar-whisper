@@ -88,7 +88,8 @@ interface UseTransfersProps {
     methodName: string,
     args: any[],
     callback: (txHash?: string, txResult?: any) => void,
-    errorCallback: (err: string) => void
+    errorCallback: (err: string) => void,
+    useRelayer?: boolean
   ) => Promise<void>;
   setIsProving: (proving: boolean) => void;
   setProvingProgress: (progress: number) => void;
@@ -722,7 +723,8 @@ export function useTransfers({
         setRecipientAddress('');
         setRecipientZkPublicKey('');
         setRecipientViewingKey('');
-      }
+      },
+      true
     );
   };
 
