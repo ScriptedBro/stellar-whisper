@@ -235,8 +235,6 @@ export default function App() {
               connectWallet={wallet.connectWallet}
               publicXlmBalance={balances.publicXlmBalance}
               publicUsdcBalance={balances.publicUsdcBalance}
-              fetchBalances={balances.fetchBalances}
-              userAddress={wallet.userAddress}
             />
           )}
 
@@ -247,7 +245,6 @@ export default function App() {
               shieldedXlmBalance={balances.shieldedXlmBalance}
               shieldedUsdcBalance={balances.shieldedUsdcBalance}
               notes={notes.notes}
-              fetchBalances={balances.fetchBalances}
             />
           )}
         </div>

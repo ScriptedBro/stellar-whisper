@@ -8,7 +8,6 @@ interface SwapPanelProps {
   shieldedXlmBalance: number;
   shieldedUsdcBalance: number;
   notes: PrivateNote[];
-  fetchBalances?: (address: string) => Promise<void>;
 }
 
 export function SwapPanel({
@@ -16,10 +15,9 @@ export function SwapPanel({
   connectWallet,
   shieldedXlmBalance,
   shieldedUsdcBalance,
-  notes,
-  fetchBalances
+  notes
 }: SwapPanelProps) {
-  const { showNotification } = useNotification();
+  const { showToast } = useNotification();
   const [fromAsset, setFromAsset] = useState<'USDC' | 'XLM'>('USDC');
   const [toAsset, setToAsset] = useState<'USDC' | 'XLM'>('XLM');
   const [fromAmount, setFromAmount] = useState('');
@@ -92,11 +90,7 @@ export function SwapPanel({
 
     const amt = parseFloat(fromAmount);
     if (amt > activeShieldedBalance) {
-      showNotification({
-        title: "Insufficient Shielded Balance",
-        message: `You do not have enough shielded ${fromAsset} to complete this private swap.`,
-        type: "error"
-      });
+      showToast(`Insufficient Shielded Balance: You do not have enough shielded ${fromAsset} to complete this private swap.`, "error");
       return;
     }
 
@@ -139,11 +133,7 @@ export function SwapPanel({
     setFromAmount('');
     setToAmount('');
 
-    showNotification({
-      title: "Private Swap Complete!",
-      message: `Successfully swapped ${amt} shielded ${fromAsset} for ${toAmount} shielded ${toAsset} via zero-knowledge proof.`,
-      type: "success"
-    });
+    showToast(`Private Swap Complete! Successfully swapped ${amt} shielded ${fromAsset} for ${toAmount} shielded ${toAsset} via zero-knowledge proof.`, "success");
   };
 
   return (

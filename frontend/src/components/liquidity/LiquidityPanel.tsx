@@ -6,19 +6,15 @@ interface LiquidityPanelProps {
   connectWallet: () => Promise<void>;
   publicXlmBalance: number;
   publicUsdcBalance: number;
-  fetchBalances?: (address: string) => Promise<void>;
-  userAddress: string;
 }
 
 export function LiquidityPanel({
   isConnected,
   connectWallet,
   publicXlmBalance,
-  publicUsdcBalance,
-  fetchBalances,
-  userAddress
+  publicUsdcBalance
 }: LiquidityPanelProps) {
-  const { showNotification } = useNotification();
+  const { showToast } = useNotification();
   const [activeSubTab, setActiveSubTab] = useState<'add' | 'remove'>('add');
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -74,20 +70,12 @@ export function LiquidityPanel({
     const usdcToDeposit = parseFloat(addUsdcAmount);
 
     if (xlmToDeposit > publicXlmBalance) {
-      showNotification({
-        title: "Insufficient Balance",
-        message: `You don't have enough XLM to add this liquidity.`,
-        type: "error"
-      });
+      showToast(`Insufficient Balance: You don't have enough XLM to add this liquidity.`, "error");
       return;
     }
 
     if (usdcToDeposit > publicUsdcBalance) {
-      showNotification({
-        title: "Insufficient Balance",
-        message: `You don't have enough USDC to add this liquidity.`,
-        type: "error"
-      });
+      showToast(`Insufficient Balance: You don't have enough USDC to add this liquidity.`, "error");
       return;
     }
 
@@ -118,11 +106,7 @@ export function LiquidityPanel({
     setAddXlmAmount('');
     setAddUsdcAmount('');
     
-    showNotification({
-      title: "Liquidity Deposited Successfully",
-      message: `Added ${xlmToDeposit} XLM & ${usdcToDeposit} USDC to the pool. Minted ${newLpMinted.toFixed(4)} LP tokens.`,
-      type: "success"
-    });
+    showToast(`Liquidity Deposited: Added ${xlmToDeposit} XLM & ${usdcToDeposit} USDC to the pool. Minted ${newLpMinted.toFixed(4)} LP tokens.`, "success");
   };
 
   const handleRemoveLiquiditySubmit = async (e: React.FormEvent) => {
@@ -156,11 +140,7 @@ export function LiquidityPanel({
     
     setIsProcessing(false);
     
-    showNotification({
-      title: "Liquidity Removed Successfully",
-      message: `Burned ${lpToRemove.toFixed(4)} LP tokens. Received ${xlmReturned.toFixed(2)} XLM and ${usdcReturned.toFixed(2)} USDC.`,
-      type: "success"
-    });
+    showToast(`Liquidity Removed: Burned ${lpToRemove.toFixed(4)} LP tokens. Received ${xlmReturned.toFixed(2)} XLM and ${usdcReturned.toFixed(2)} USDC.`, "success");
   };
 
   return (
