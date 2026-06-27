@@ -42,21 +42,21 @@ impl Contract {
             return Err(ContractError::ProofVerificationFailed);
         }
         
-        // Ensure we have exactly 7 public inputs as required by the Spend circuit
-        if public_inputs.len() != 7 {
+        // Ensure we have exactly 8 public inputs as required by the Spend circuit
+        if public_inputs.len() != 8 {
             return Err(ContractError::ProofVerificationFailed);
         }
 
-        // Concatenate public inputs and pack the first 208 bytes into 208 Fr scalars
+        // Concatenate public inputs and pack the first 240 bytes into 240 Fr scalars
         let mut public_inputs_bytes = Bytes::new(&env);
         
-        // Unpack the first 208 bytes of public_inputs byte-wise into 32-byte field elements
-        // 7 * 32 = 224 bytes total in public_inputs, but only the first 208 bytes are user-provided.
+        // Unpack the first 240 bytes of public_inputs byte-wise into 32-byte field elements
+        // 8 * 32 = 256 bytes total in public_inputs, but only the first 240 bytes are user-provided.
         let mut byte_count = 0;
-        for i in 0..7 {
+        for i in 0..8 {
             let chunk = public_inputs.get(i).unwrap().to_array();
             for &byte in chunk.iter() {
-                if byte_count < 208 {
+                if byte_count < 240 {
                     // Convert byte into a 32-byte big-endian Fr (field element)
                     let mut scalar = [0u8; 32];
                     scalar[31] = byte;
@@ -104,7 +104,7 @@ mod test {
         let raw_inputs_all = include_bytes!("../../../circuits/whisper/target/public_inputs_raw");
         
         let mut public_inputs = Vec::new(&env);
-        for i in 0..7 {
+        for i in 0..8 {
             let mut chunk = [0u8; 32];
             chunk.copy_from_slice(&raw_inputs_all[i * 32..(i + 1) * 32]);
             public_inputs.push_back(BytesN::from_array(&env, &chunk));
@@ -116,10 +116,10 @@ mod test {
         
         let mut public_inputs_bytes = Bytes::new(&env);
         let mut byte_count = 0;
-        for i in 0..7 {
+        for i in 0..8 {
             let chunk = public_inputs.get(i).unwrap().to_array();
             for &byte in chunk.iter() {
-                if byte_count < 208 {
+                if byte_count < 240 {
                     let mut scalar = [0u8; 32];
                     scalar[31] = byte;
                     public_inputs_bytes.extend_from_slice(&scalar);
@@ -159,7 +159,7 @@ mod test {
         }
 
         let mut public_inputs = Vec::new(&env);
-        for i in 0..7 {
+        for i in 0..8 {
             public_inputs.push_back(BytesN::from_array(&env, &[i as u8; 32]));
         }
 
@@ -179,7 +179,7 @@ mod test {
         }
 
         let mut public_inputs = Vec::new(&env);
-        for i in 0..7 {
+        for i in 0..8 {
             public_inputs.push_back(BytesN::from_array(&env, &[i as u8; 32]));
         }
 

@@ -27,6 +27,12 @@ fn val_to_bytes32(env: &Env, val: i128) -> BytesN<32> {
     BytesN::from_array(env, &arr)
 }
 
+fn get_asset_id(env: &Env, token: &Address) -> BytesN<32> {
+    let token_xdr = token.to_xdr(env);
+    let token_hash = env.crypto().sha256(&token_xdr);
+    BytesN::from_array(env, &token_hash.to_array())
+}
+
 #[test]
 fn test_whisper_flow() {
     let env = Env::default();
@@ -57,7 +63,7 @@ fn test_whisper_flow() {
 
     // Perform a deposit
     let commitment = BytesN::from_array(&env, &[1u8; 32]);
-    let root = whisper_client.deposit(&user, &commitment, &deposit_amount, &Bytes::new(&env));
+    let root = whisper_client.deposit(&user, &token_addr, &commitment, &deposit_amount, &Bytes::new(&env));
 
     // Verify token balances after deposit
     assert_eq!(token_client.balance(&user), 0);
@@ -79,11 +85,12 @@ fn test_whisper_flow() {
     let zero_bytes = BytesN::from_array(&env, &[0u8; 32]);
     public_inputs.push_back(zero_bytes.clone()); // public_inputs[5]: output_commitment_1 (zero for withdraw)
     public_inputs.push_back(zero_bytes.clone()); // public_inputs[6]: output_commitment_2 (zero for withdraw)
+    public_inputs.push_back(get_asset_id(&env, &token_addr)); // public_inputs[7]: asset_id
 
     // Perform a transfer/withdraw using ZK proof (mocked verifier will always succeed)
     let mock_proof = Bytes::new(&env);
     let encrypted_notes = Vec::new(&env);
-    whisper_client.transfer_or_withdraw(&mock_proof, &public_inputs, &recipient, &deposit_amount, &encrypted_notes, &Vec::new(&env));
+    whisper_client.transfer_or_withdraw(&token_addr, &mock_proof, &public_inputs, &recipient, &deposit_amount, &encrypted_notes, &Vec::new(&env));
 
     // Verify final balances
     assert_eq!(token_client.balance(&whisper_contract_id), 0);
@@ -112,7 +119,7 @@ fn test_whisper_shielded_transfer() {
     token_admin.mint(&user, &deposit_amount);
 
     let commitment = BytesN::from_array(&env, &[1u8; 32]);
-    let root = whisper_client.deposit(&user, &commitment, &deposit_amount, &Bytes::new(&env));
+    let root = whisper_client.deposit(&user, &token_addr, &commitment, &deposit_amount, &Bytes::new(&env));
 
     // Shielded transfer: recipient is the contract itself
     let recipient = whisper_contract_id.clone();
@@ -129,6 +136,7 @@ fn test_whisper_shielded_transfer() {
     public_inputs.push_back(zero_bytes.clone()); // public_inputs[4]: public_recipient_hash (0)
     public_inputs.push_back(out_commitment_1.clone()); // public_inputs[5]: output_commitment_1
     public_inputs.push_back(out_commitment_2.clone()); // public_inputs[6]: output_commitment_2
+    public_inputs.push_back(get_asset_id(&env, &token_addr)); // public_inputs[7]: asset_id
 
     let mut new_commitments = Vec::new(&env);
     new_commitments.push_back(out_commitment_1.clone());
@@ -140,7 +148,7 @@ fn test_whisper_shielded_transfer() {
 
     let mock_proof = Bytes::new(&env);
     // Amount must be 0 for shielded transfer
-    whisper_client.transfer_or_withdraw(&mock_proof, &public_inputs, &recipient, &0, &encrypted_notes, &new_commitments);
+    whisper_client.transfer_or_withdraw(&token_addr, &mock_proof, &public_inputs, &recipient, &0, &encrypted_notes, &new_commitments);
 
     // Verify token balance remains in contract
     assert_eq!(token_client.balance(&whisper_contract_id), deposit_amount);
@@ -172,11 +180,12 @@ fn test_whisper_invalid_merkle_root() {
     public_inputs.push_back(BytesN::from_array(&env, &[0u8; 32])); // recipient hash
     public_inputs.push_back(BytesN::from_array(&env, &[0u8; 32]));
     public_inputs.push_back(BytesN::from_array(&env, &[0u8; 32]));
+    public_inputs.push_back(get_asset_id(&env, &token_addr)); // asset_id
 
     let mock_proof = Bytes::new(&env);
     let recipient = Address::generate(&env);
     let encrypted_notes = Vec::new(&env);
-    whisper_client.transfer_or_withdraw(&mock_proof, &public_inputs, &recipient, &100, &encrypted_notes, &Vec::new(&env));
+    whisper_client.transfer_or_withdraw(&token_addr, &mock_proof, &public_inputs, &recipient, &100, &encrypted_notes, &Vec::new(&env));
 }
 
 #[test]
@@ -201,7 +210,7 @@ fn test_whisper_double_spend() {
     token_admin.mint(&user, &deposit_amount);
 
     let commitment = BytesN::from_array(&env, &[1u8; 32]);
-    let root = whisper_client.deposit(&user, &commitment, &deposit_amount, &Bytes::new(&env));
+    let root = whisper_client.deposit(&user, &token_addr, &commitment, &deposit_amount, &Bytes::new(&env));
 
     let nullifier_hash = BytesN::from_array(&env, &[2u8; 32]);
     let mut public_inputs = Vec::new(&env);
@@ -216,15 +225,16 @@ fn test_whisper_double_spend() {
     let zero_bytes = BytesN::from_array(&env, &[0u8; 32]);
     public_inputs.push_back(zero_bytes.clone());
     public_inputs.push_back(zero_bytes.clone());
+    public_inputs.push_back(get_asset_id(&env, &token_addr)); // asset_id
 
     let mock_proof = Bytes::new(&env);
     let encrypted_notes = Vec::new(&env);
     
     // First spend succeeds
-    whisper_client.transfer_or_withdraw(&mock_proof, &public_inputs, &recipient, &deposit_amount, &encrypted_notes, &Vec::new(&env));
+    whisper_client.transfer_or_withdraw(&token_addr, &mock_proof, &public_inputs, &recipient, &deposit_amount, &encrypted_notes, &Vec::new(&env));
 
     // Second spend with same nullifier must fail
-    whisper_client.transfer_or_withdraw(&mock_proof, &public_inputs, &recipient, &deposit_amount, &encrypted_notes, &Vec::new(&env));
+    whisper_client.transfer_or_withdraw(&token_addr, &mock_proof, &public_inputs, &recipient, &deposit_amount, &encrypted_notes, &Vec::new(&env));
 }
 
 #[test]
@@ -248,7 +258,7 @@ fn test_whisper_invalid_proof() {
     token_admin.mint(&user, &deposit_amount);
 
     let commitment = BytesN::from_array(&env, &[1u8; 32]);
-    let root = whisper_client.deposit(&user, &commitment, &deposit_amount, &Bytes::new(&env));
+    let root = whisper_client.deposit(&user, &token_addr, &commitment, &deposit_amount, &Bytes::new(&env));
 
     let nullifier_hash = BytesN::from_array(&env, &[2u8; 32]);
     let mut public_inputs = Vec::new(&env);
@@ -263,13 +273,14 @@ fn test_whisper_invalid_proof() {
     let zero_bytes = BytesN::from_array(&env, &[0u8; 32]);
     public_inputs.push_back(zero_bytes.clone());
     public_inputs.push_back(zero_bytes.clone());
+    public_inputs.push_back(get_asset_id(&env, &token_addr)); // asset_id
 
     // Proof with value 9 triggers failure in MockVerifier
     let mut invalid_proof = Bytes::new(&env);
     invalid_proof.push_back(9);
     
     let encrypted_notes = Vec::new(&env);
-    whisper_client.transfer_or_withdraw(&invalid_proof, &public_inputs, &recipient, &deposit_amount, &encrypted_notes, &Vec::new(&env));
+    whisper_client.transfer_or_withdraw(&token_addr, &invalid_proof, &public_inputs, &recipient, &deposit_amount, &encrypted_notes, &Vec::new(&env));
 }
 
 #[test]
@@ -288,9 +299,9 @@ fn test_whisper_duplicate_deposit_commitment() {
 
     token_admin.mint(&user, &2000);
     let commitment = BytesN::from_array(&env, &[1u8; 32]);
-    whisper_client.deposit(&user, &commitment, &1000, &Bytes::new(&env));
+    whisper_client.deposit(&user, &token_addr, &commitment, &1000, &Bytes::new(&env));
     // Try depositing the same commitment again
-    whisper_client.deposit(&user, &commitment, &1000, &Bytes::new(&env));
+    whisper_client.deposit(&user, &token_addr, &commitment, &1000, &Bytes::new(&env));
 }
 
 #[test]
@@ -318,12 +329,12 @@ fn test_whisper_tree_full() {
     let mut bytes = [0u8; 32];
     bytes[31] = 1;
     let commitment1 = BytesN::from_array(&env, &bytes);
-    whisper_client.deposit(&user, &commitment1, &1000, &Bytes::new(&env));
+    whisper_client.deposit(&user, &token_addr, &commitment1, &1000, &Bytes::new(&env));
 
     // The 65,537th deposit should panic with TreeFull
     bytes[31] = 2;
     let commitment2 = BytesN::from_array(&env, &bytes);
-    whisper_client.deposit(&user, &commitment2, &1000, &Bytes::new(&env));
+    whisper_client.deposit(&user, &token_addr, &commitment2, &1000, &Bytes::new(&env));
 }
 
 #[test]
@@ -343,7 +354,7 @@ fn test_whisper_public_withdraw_with_non_zero_output_commitments() {
 
     token_admin.mint(&user, &1000);
     let commitment = BytesN::from_array(&env, &[1u8; 32]);
-    let root = whisper_client.deposit(&user, &commitment, &1000, &Bytes::new(&env));
+    let root = whisper_client.deposit(&user, &token_addr, &commitment, &1000, &Bytes::new(&env));
 
     let mut public_inputs = Vec::new(&env);
     public_inputs.push_back(root);
@@ -357,10 +368,11 @@ fn test_whisper_public_withdraw_with_non_zero_output_commitments() {
     // Non-zero output commitments in public inputs (violates public withdrawal constraints)
     public_inputs.push_back(BytesN::from_array(&env, &[3u8; 32]));
     public_inputs.push_back(BytesN::from_array(&env, &[4u8; 32]));
+    public_inputs.push_back(get_asset_id(&env, &token_addr)); // asset_id
 
     let mock_proof = Bytes::new(&env);
     let encrypted_notes = Vec::new(&env);
-    whisper_client.transfer_or_withdraw(&mock_proof, &public_inputs, &recipient, &1000, &encrypted_notes, &Vec::new(&env));
+    whisper_client.transfer_or_withdraw(&token_addr, &mock_proof, &public_inputs, &recipient, &1000, &encrypted_notes, &Vec::new(&env));
 }
 
 #[test]
@@ -379,7 +391,7 @@ fn test_whisper_shielded_transfer_with_non_zero_public_withdraw_amount() {
 
     token_admin.mint(&user, &1000);
     let commitment = BytesN::from_array(&env, &[1u8; 32]);
-    let root = whisper_client.deposit(&user, &commitment, &1000, &Bytes::new(&env));
+    let root = whisper_client.deposit(&user, &token_addr, &commitment, &1000, &Bytes::new(&env));
 
     let recipient = whisper_contract_id.clone();
     let out_commitment_1 = BytesN::from_array(&env, &[3u8; 32]);
@@ -396,6 +408,7 @@ fn test_whisper_shielded_transfer_with_non_zero_public_withdraw_amount() {
     
     public_inputs.push_back(out_commitment_1.clone());
     public_inputs.push_back(out_commitment_2.clone());
+    public_inputs.push_back(get_asset_id(&env, &token_addr)); // asset_id
 
     let mut new_commitments = Vec::new(&env);
     new_commitments.push_back(out_commitment_1);
@@ -406,7 +419,7 @@ fn test_whisper_shielded_transfer_with_non_zero_public_withdraw_amount() {
     encrypted_notes.push_back(Bytes::new(&env));
     encrypted_notes.push_back(Bytes::new(&env));
 
-    whisper_client.transfer_or_withdraw(&mock_proof, &public_inputs, &recipient, &0, &encrypted_notes, &new_commitments);
+    whisper_client.transfer_or_withdraw(&token_addr, &mock_proof, &public_inputs, &recipient, &0, &encrypted_notes, &new_commitments);
 }
 
 #[test]
@@ -425,7 +438,7 @@ fn test_whisper_shielded_transfer_mismatched_new_commitments() {
 
     token_admin.mint(&user, &1000);
     let commitment = BytesN::from_array(&env, &[1u8; 32]);
-    let root = whisper_client.deposit(&user, &commitment, &1000, &Bytes::new(&env));
+    let root = whisper_client.deposit(&user, &token_addr, &commitment, &1000, &Bytes::new(&env));
 
     let recipient = whisper_contract_id.clone();
     let out_commitment_1 = BytesN::from_array(&env, &[3u8; 32]);
@@ -439,6 +452,7 @@ fn test_whisper_shielded_transfer_mismatched_new_commitments() {
     public_inputs.push_back(BytesN::from_array(&env, &[0u8; 32]));
     public_inputs.push_back(out_commitment_1.clone());
     public_inputs.push_back(out_commitment_2.clone());
+    public_inputs.push_back(get_asset_id(&env, &token_addr)); // asset_id
 
     // Mismatched new_commitments list passed to contract (e.g. out_commitment_2 is different)
     let mut new_commitments = Vec::new(&env);
@@ -450,7 +464,7 @@ fn test_whisper_shielded_transfer_mismatched_new_commitments() {
     encrypted_notes.push_back(Bytes::new(&env));
     encrypted_notes.push_back(Bytes::new(&env));
 
-    whisper_client.transfer_or_withdraw(&mock_proof, &public_inputs, &recipient, &0, &encrypted_notes, &new_commitments);
+    whisper_client.transfer_or_withdraw(&token_addr, &mock_proof, &public_inputs, &recipient, &0, &encrypted_notes, &new_commitments);
 }
 
 #[test]
@@ -467,7 +481,7 @@ fn test_whisper_failed_token_transfer_rollback() {
 
     // User has 0 tokens, so deposit of 1000 will fail
     let commitment = BytesN::from_array(&env, &[1u8; 32]);
-    let result = whisper_client.try_deposit(&user, &commitment, &1000, &Bytes::new(&env));
+    let result = whisper_client.try_deposit(&user, &token_addr, &commitment, &1000, &Bytes::new(&env));
     
     // Deposit should return an error / fail
     assert!(result.is_err());
@@ -497,7 +511,7 @@ fn test_whisper_sanctioned_address_deposit_rejected() {
     let commitment = BytesN::from_array(&env, &[1u8; 32]);
     
     // Deposit from sanctioned user should panic with SanctionedAddress error
-    whisper_client.deposit(&user, &commitment, &1000, &Bytes::new(&env));
+    whisper_client.deposit(&user, &token_addr, &commitment, &1000, &Bytes::new(&env));
 }
 
 #[test]
@@ -517,7 +531,7 @@ fn test_whisper_sanctioned_address_withdraw_rejected() {
 
     token_admin.mint(&user, &1000);
     let commitment = BytesN::from_array(&env, &[1u8; 32]);
-    let root = whisper_client.deposit(&user, &commitment, &1000, &Bytes::new(&env));
+    let root = whisper_client.deposit(&user, &token_addr, &commitment, &1000, &Bytes::new(&env));
 
     // Set recipient as sanctioned
     whisper_client.set_sanctioned(&recipient, &true);
@@ -536,12 +550,13 @@ fn test_whisper_sanctioned_address_withdraw_rejected() {
     let zero_bytes = BytesN::from_array(&env, &[0u8; 32]);
     public_inputs.push_back(zero_bytes.clone());
     public_inputs.push_back(zero_bytes.clone());
+    public_inputs.push_back(get_asset_id(&env, &token_addr)); // asset_id
 
     let mock_proof = Bytes::new(&env);
     let encrypted_notes = Vec::new(&env);
 
     // Withdraw to sanctioned recipient should panic with SanctionedAddress error
-    whisper_client.transfer_or_withdraw(&mock_proof, &public_inputs, &recipient, &1000, &encrypted_notes, &Vec::new(&env));
+    whisper_client.transfer_or_withdraw(&token_addr, &mock_proof, &public_inputs, &recipient, &1000, &encrypted_notes, &Vec::new(&env));
 }
 
 #[test]
@@ -561,18 +576,21 @@ fn test_cross_layer_fixtures() {
     let sample_secret_key = hex_to_bytes32("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
     let sample_amount = hex_to_bytes32("0000000000000000000000000000000000000000000000000000000005f5e100");
     let sample_nullifier_nonce = hex_to_bytes32("0202020202020202020202020202020202020202020202020202020202020202");
+    let sample_asset_id = hex_to_bytes32("0303030303030303030303030303030303030303030303030303030303030303");
 
     // 2. Test Sender Pubkey Derivation: pubkey = poseidon_1(secret_key)
     let secret_bytesn = BytesN::from_array(&env, &sample_secret_key);
     let pubkey_hash = hash_poseidon_1(&env, secret_bytesn);
     let computed_pubkey = pubkey_hash.to_array();
 
-    // 3. Test Commitment Derivation: commitment = poseidon_2(pubkey, poseidon_2(amount, nonce))
+    // 3. Test Commitment Derivation: commitment = poseidon_2(pubkey, poseidon_2(poseidon_2(amount, nonce), asset_id))
     let pubkey_bytesn = BytesN::from_array(&env, &computed_pubkey);
     let amount_bytesn = BytesN::from_array(&env, &sample_amount);
     let nonce_bytesn = BytesN::from_array(&env, &sample_nullifier_nonce);
+    let asset_id_bytesn = BytesN::from_array(&env, &sample_asset_id);
     let salted_amount = hash_poseidon_2(&env, amount_bytesn, nonce_bytesn);
-    let derived_commitment = hash_poseidon_2(&env, pubkey_bytesn, salted_amount);
+    let asset_salted_amount = hash_poseidon_2(&env, salted_amount, asset_id_bytesn);
+    let derived_commitment = hash_poseidon_2(&env, pubkey_bytesn, asset_salted_amount);
     let computed_commitment = derived_commitment.to_array();
 
     // 4. Test Nullifier Derivation: nullifier = poseidon_2(secret_key, nonce)
@@ -606,11 +624,6 @@ fn test_cross_layer_fixtures() {
     // Pubkey and nullifier derivations are unchanged
     assert_eq!(computed_pubkey, expected_pubkey);
     assert_eq!(computed_nullifier, expected_nullifier);
-
-    // Commitment and merkle root values have changed due to new formula
-    // commitment = poseidon(pubkey, poseidon(amount, nonce)) instead of poseidon(pubkey, amount)
-    // The new values are verified dynamically (the computation itself is the test)
-    // If hash_poseidon_2 is consistent across layers, the circuit will produce matching values
 }
 
 #[test]
@@ -712,7 +725,7 @@ fn test_whisper_public_withdraw_with_change() {
     token_admin.mint(&user, &deposit_amount);
 
     let commitment = BytesN::from_array(&env, &[1u8; 32]);
-    let root = whisper_client.deposit(&user, &commitment, &deposit_amount, &Bytes::new(&env));
+    let root = whisper_client.deposit(&user, &token_addr, &commitment, &deposit_amount, &Bytes::new(&env));
 
     // Public withdraw with change: recipient is NOT the contract, withdraw amount is 400, change is 600
     let withdraw_amount = 400i128;
@@ -733,6 +746,7 @@ fn test_whisper_public_withdraw_with_change() {
 
     public_inputs.push_back(zero_bytes.clone()); // public_inputs[5]: output_commitment_1 (zero for public recipient)
     public_inputs.push_back(out_commitment_2.clone()); // public_inputs[6]: output_commitment_2 (change commitment)
+    public_inputs.push_back(get_asset_id(&env, &token_addr)); // public_inputs[7]: asset_id
 
     let mut new_commitments = Vec::new(&env);
     new_commitments.push_back(out_commitment_2.clone());
@@ -741,7 +755,7 @@ fn test_whisper_public_withdraw_with_change() {
     encrypted_notes.push_back(Bytes::new(&env)); // encrypted change note
 
     let mock_proof = Bytes::new(&env);
-    whisper_client.transfer_or_withdraw(&mock_proof, &public_inputs, &recipient, &withdraw_amount, &encrypted_notes, &new_commitments);
+    whisper_client.transfer_or_withdraw(&token_addr, &mock_proof, &public_inputs, &recipient, &withdraw_amount, &encrypted_notes, &new_commitments);
 
     // Verify token balances
     assert_eq!(token_client.balance(&whisper_contract_id), deposit_amount - withdraw_amount);

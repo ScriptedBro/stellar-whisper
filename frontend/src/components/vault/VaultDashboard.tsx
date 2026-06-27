@@ -39,6 +39,12 @@ function CopyButton({ text, tooltip }: CopyButtonProps) {
 interface VaultDashboardProps {
   shieldedBalance: number;
   publicBalance: number;
+  publicUsdcBalance: number;
+  publicXlmBalance: number;
+  shieldedUsdcBalance: number;
+  shieldedXlmBalance: number;
+  selectedAsset: 'USDC' | 'XLM';
+  setSelectedAsset: (asset: 'USDC' | 'XLM') => void;
   isConnected: boolean;
   isSyncing: boolean;
   syncProgress: string;
@@ -52,6 +58,8 @@ interface VaultDashboardProps {
 export function VaultDashboard({ 
   shieldedBalance,
   publicBalance,
+  selectedAsset,
+  setSelectedAsset,
   isConnected,
   isSyncing,
   syncProgress,
@@ -62,7 +70,11 @@ export function VaultDashboard({
   importNotes
 }: VaultDashboardProps) {
   const { showToast, showAlert } = useNotification();
-  const activeNotes = notes.filter(n => !n.spent);
+  const activeNotes = notes.filter(n => {
+    if (n.spent) return false;
+    const isXlm = n.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+    return selectedAsset === 'XLM' ? isXlm : !isXlm;
+  });
 
   const handleExportBackup = () => {
     if (notes.length === 0) {
@@ -119,34 +131,61 @@ export function VaultDashboard({
       {/* Shielded Balance Hero Card */}
       <div className="col-span-12 lg:col-span-8 glass-panel rounded-lg p-6 md:p-8 flex flex-col md:flex-row items-center gap-8 glass-inner-stroke overflow-hidden relative">
         <div className="absolute top-0 right-0 w-64 h-64 bg-[#8a2be2]/10 blur-[100px] pointer-events-none"></div>
-        <div className="relative w-full md:w-1/2 aspect-square max-w-[240px] flex items-center justify-center">
+        <div className="relative w-full md:w-1/2 aspect-square max-w-[200px] flex items-center justify-center">
           <div className="absolute inset-0 bg-[#8a2be2]/20 rounded-full filter blur-[40px] animate-pulse-glow"></div>
-          <span className="material-symbols-outlined text-[120px] text-[#00f4fe] animate-pulse relative z-10" style={{ fontVariationSettings: "'FILL' 0" }}>shield</span>
+          <span className="material-symbols-outlined text-[100px] text-[#00f4fe] animate-pulse relative z-10" style={{ fontVariationSettings: "'FILL' 0" }}>shield</span>
         </div>
         
         <div className="w-full md:w-1/2 flex flex-col justify-center">
-          <div className="inline-flex items-center gap-2 text-xs font-mono text-[#00dce5] mb-3">
-            <span className="material-symbols-outlined text-xs" style={{ fontVariationSettings: "'FILL' 1" }}>lock</span>
-            PRIVATE ASSET VAULT
+          <div className="flex items-center justify-between w-full mb-3">
+            <div className="inline-flex items-center gap-2 text-xs font-mono text-[#00dce5]">
+              <span className="material-symbols-outlined text-xs" style={{ fontVariationSettings: "'FILL' 1" }}>lock</span>
+              PRIVATE ASSET VAULT
+            </div>
+            
+            {/* Asset Selector */}
+            <div className="flex bg-white/5 p-1 rounded-full border border-white/10">
+              <button
+                onClick={() => setSelectedAsset('USDC')}
+                className={`px-3 py-1 rounded-full text-[10px] font-bold tracking-wider transition-all cursor-pointer border-none ${
+                  selectedAsset === 'USDC' 
+                    ? 'bg-[#00f4fe] text-black shadow-[0_0_8px_rgba(0,244,254,0.4)]' 
+                    : 'text-[#cfc2d7] hover:text-white bg-transparent'
+                }`}
+              >
+                USDC
+              </button>
+              <button
+                onClick={() => setSelectedAsset('XLM')}
+                className={`px-3 py-1 rounded-full text-[10px] font-bold tracking-wider transition-all cursor-pointer border-none ${
+                  selectedAsset === 'XLM' 
+                    ? 'bg-[#00f4fe] text-black shadow-[0_0_8px_rgba(0,244,254,0.4)]' 
+                    : 'text-[#cfc2d7] hover:text-white bg-transparent'
+                }`}
+              >
+                XLM
+              </button>
+            </div>
           </div>
-          <h3 className="text-xl font-bold text-white mb-2">Shielded Balance</h3>
-          <div className="flex items-baseline gap-2 mb-6">
+
+          <h3 className="text-sm font-bold text-[#cfc2d7] mb-1">Shielded Balance ({selectedAsset})</h3>
+          <div className="flex items-baseline gap-2 mb-4">
             <span className="text-4xl font-bold tracking-tight text-white font-mono hover:text-[#00f4fe] transition-all">
               {shieldedBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
-            <span className="text-lg font-bold text-[#00dce5]">USDC</span>
+            <span className="text-lg font-bold text-[#00dce5]">{selectedAsset}</span>
           </div>
           
-          <div className="grid grid-cols-2 gap-4 mb-6">
+          <div className="grid grid-cols-2 gap-4 mb-4">
             <div className="p-3 rounded bg-white/5 border border-white/10">
-              <p className="text-[10px] text-[#cfc2d7] mb-1 uppercase tracking-wider">Public Wallet</p>
-              <p className="text-sm font-bold text-white font-mono">
-                ${publicBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              <p className="text-[9px] text-[#cfc2d7] mb-0.5 uppercase tracking-wider">Public Balance</p>
+              <p className="text-xs font-bold text-white font-mono">
+                {selectedAsset === 'USDC' ? '$' : ''}{publicBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {selectedAsset}
               </p>
             </div>
             <div className="p-3 rounded bg-white/5 border border-white/10">
-              <p className="text-[10px] text-[#cfc2d7] mb-1 uppercase tracking-wider">Privacy Level</p>
-              <p className="text-sm font-bold text-green-400">MAXIMUM</p>
+              <p className="text-[9px] text-[#cfc2d7] mb-0.5 uppercase tracking-wider">Privacy Level</p>
+              <p className="text-xs font-bold text-green-400">MAXIMUM</p>
             </div>
           </div>
           
@@ -187,7 +226,7 @@ export function VaultDashboard({
       </div>
 
       {/* Invisible Pool Stats */}
-      <PoolStats />
+      <PoolStats selectedAsset={selectedAsset} />
 
       {/* Recent Private Activity */}
       <ActivityLog logs={logs} />
@@ -272,33 +311,46 @@ export function VaultDashboard({
                 No shielded notes detected on-chain. Deposits or transfers will automatically generate notes.
               </div>
             ) : (
-              activeNotes.map((note) => (
-                <div 
-                  key={note.commitment} 
-                  className="p-3 rounded border text-xs transition-all bg-green-950/10 border-green-500/20 hover:border-green-500/40"
-                >
-                  <div className="flex justify-between items-start mb-1.5">
-                    <span className="font-bold text-white font-mono">{note.amount.toFixed(2)} USDC</span>
-                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider bg-green-500/20 text-green-400">
-                      Spendable
-                    </span>
-                  </div>
-                  <div className="font-mono text-[9px] text-[#cfc2d7] flex flex-col gap-0.5">
-                    <div className="flex items-center justify-between w-full" title={note.commitment}>
-                      <span className="truncate flex-grow">
-                        <span className="text-[#00dce5]">Commitment:</span> {note.commitment.slice(0, 16)}...
+              activeNotes.map((note) => {
+                const isXlm = note.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+                return (
+                  <div 
+                    key={note.commitment} 
+                    className={`p-3 rounded border text-xs transition-all ${
+                      isXlm 
+                        ? 'bg-purple-950/10 border-purple-500/20 hover:border-purple-500/40' 
+                        : 'bg-green-950/10 border-green-500/20 hover:border-green-500/40'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start mb-1.5">
+                      <span className="font-bold text-white font-mono">
+                        {note.amount.toFixed(2)} {isXlm ? 'XLM' : 'USDC'}
                       </span>
-                      <CopyButton text={note.commitment} tooltip="Commitment" />
-                    </div>
-                    <div className="flex items-center justify-between w-full" title={note.nullifierNonce}>
-                      <span className="truncate flex-grow">
-                        <span className="text-[#dcb8ff]">Nonce:</span> {note.nullifierNonce.slice(0, 16)}...
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${
+                        isXlm 
+                          ? 'bg-purple-500/20 text-purple-400' 
+                          : 'bg-green-500/20 text-green-400'
+                      }`}>
+                        {isXlm ? 'XLM Note' : 'USDC Note'}
                       </span>
-                      <CopyButton text={note.nullifierNonce} tooltip="Nonce" />
+                    </div>
+                    <div className="font-mono text-[9px] text-[#cfc2d7] flex flex-col gap-0.5">
+                      <div className="flex items-center justify-between w-full" title={note.commitment}>
+                        <span className="truncate flex-grow">
+                          <span className="text-[#00dce5]">Commitment:</span> {note.commitment.slice(0, 16)}...
+                        </span>
+                        <CopyButton text={note.commitment} tooltip="Commitment" />
+                      </div>
+                      <div className="flex items-center justify-between w-full" title={note.nullifierNonce}>
+                        <span className="truncate flex-grow">
+                          <span className="text-[#dcb8ff]">Nonce:</span> {note.nullifierNonce.slice(0, 16)}...
+                        </span>
+                        <CopyButton text={note.nullifierNonce} tooltip="Nonce" />
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

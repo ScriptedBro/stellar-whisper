@@ -1,14 +1,48 @@
 import { useState, useEffect } from 'react';
-import { scValToNative, xdr } from '@stellar/stellar-sdk';
+import { scValToNative, xdr, rpc, Contract, Account, TransactionBuilder, Networks, nativeToScVal, Keypair } from '@stellar/stellar-sdk';
 import { DEFAULT_CONFIG } from '../../config/constants';
 import { getOnChainZeroHash, computeLatestMerkleRootOnChain } from '../../lib/merkle';
 
-export function PoolStats() {
+async function fetchOnChainTvl(
+  tokenContractId: string,
+  whisperContractId: string
+): Promise<number> {
+  try {
+    const server = new rpc.Server("https://soroban-testnet.stellar.org");
+    const simAccount = new Account(Keypair.random().publicKey(), "0");
+    const contract = new Contract(tokenContractId);
+    const tx = new TransactionBuilder(simAccount, {
+      fee: "100",
+      networkPassphrase: Networks.TESTNET
+    })
+    .addOperation(
+      contract.call("balance", nativeToScVal(whisperContractId, { type: "address" }))
+    )
+    .setTimeout(30)
+    .build();
+
+    const sim = await server.simulateTransaction(tx);
+    if (rpc.Api.isSimulationSuccess(sim) && sim.result) {
+      const rawBalance = scValToNative(sim.result.retval);
+      return Number(BigInt(rawBalance)) / 10000000;
+    }
+  } catch (err) {
+    console.error("Error fetching on-chain TVL in PoolStats:", err);
+  }
+  return 0;
+}
+
+interface PoolStatsProps {
+  selectedAsset: 'USDC' | 'XLM';
+}
+
+export function PoolStats({ selectedAsset }: PoolStatsProps) {
+  const [localAsset, setLocalAsset] = useState<'USDC' | 'XLM'>(selectedAsset);
   const [tvl, setTvl] = useState<number>(0);
   const [volume24h, setVolume24h] = useState<number>(0);
   const [volChange, setVolChange] = useState<number>(0);
   const [anonymitySet, setAnonymitySet] = useState<number>(0);
-  const [isLive, setIsLive] = useState<boolean>(false);
+  const [isOnline, setIsOnline] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // Detailed Modal states
@@ -20,19 +54,14 @@ export function PoolStats() {
   const [merkleRoot, setMerkleRoot] = useState<string>('');
   const [lastSyncedLedger, setLastSyncedLedger] = useState<number>(0);
 
-  // Fallback demo values if indexer is offline
-  const DEMO_TVL = 14200000;
-  const DEMO_VOLUME = 1820000;
-  const DEMO_VOL_CHANGE = 4.2;
-  const DEMO_ANON_SET = 18402;
-  const DEMO_DEPOSITS = 8402;
-  const DEMO_TRANSFERS = 6200;
-  const DEMO_WITHDRAWALS = 3800;
-  const DEMO_ROOT = "1a8fb215e982181cf8c8c8d88e0a293b4562c1d00c3b52d9a7f3efc1b2d03efc";
-
   // Pre-calculate default empty root
   const defaultRootBytes = getOnChainZeroHash(16);
   const DEFAULT_ROOT = Array.from(defaultRootBytes).map((b: number) => b.toString(16).padStart(2, '0')).join('');
+
+  // Sync localAsset with prop selectedAsset when it changes
+  useEffect(() => {
+    setLocalAsset(selectedAsset);
+  }, [selectedAsset]);
 
   useEffect(() => {
     let active = true;
@@ -43,12 +72,21 @@ export function PoolStats() {
         if (!response.ok) throw new Error("Indexer offline");
         const data = await response.json();
         
+        const targetToken = localAsset === 'USDC' 
+          ? DEFAULT_CONFIG.tokenContractId 
+          : 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+
         // Filter events for the current active contract
         const events = (data.events || []).filter(
           (e: any) => e.contractId === DEFAULT_CONFIG.whisperContractId
         );
+
+        // Filter events for the currently selected local asset
+        const filteredEvents = events.filter((e: any) => {
+          const token = e.tokenAddress || DEFAULT_CONFIG.tokenContractId;
+          return token.toLowerCase() === targetToken.toLowerCase();
+        });
         
-        let calculatedTvl = 0;
         let anonSet = 0;
         let vol24h_deposits = 0;
         let vol24h_withdrawals = 0;
@@ -60,7 +98,7 @@ export function PoolStats() {
         const now = Date.now();
         const oneDayAgo = now - 24 * 60 * 60 * 1000;
 
-        for (const event of events) {
+        for (const event of filteredEvents) {
           try {
             // Parse event type from topics
             const topics = (event.topic || []).map((t: any) => 
@@ -92,7 +130,6 @@ export function PoolStats() {
             const eventTime = new Date(event.ledgerClosedAt || now).getTime();
 
             if (eventType === "deposit") {
-              calculatedTvl += amount;
               anonSet += 1;
               deps += 1;
               const commitmentVal = valData && typeof valData === 'object' 
@@ -116,7 +153,6 @@ export function PoolStats() {
             } else if (eventType === "shielded_transfer") {
               txs += 1;
             } else if (eventType === "withdrawal") {
-              calculatedTvl -= amount;
               wds += 1;
               
               if (eventTime >= oneDayAgo) {
@@ -134,23 +170,24 @@ export function PoolStats() {
           calculatedRoot = await computeLatestMerkleRootOnChain(allCommitmentsBytes);
         }
 
+        // Fetch on-chain TVL directly for accuracy
+        const onChainTvl = await fetchOnChainTvl(targetToken, DEFAULT_CONFIG.whisperContractId);
+
         // 24h volume = total activity (deposits + withdrawals)
         const vol24h = vol24h_deposits + vol24h_withdrawals;
         // Net 24h change = deposits - withdrawals
         const netChange24h = vol24h_deposits - vol24h_withdrawals;
 
         if (active) {
-          const poolTvl = Math.max(0, calculatedTvl);
-          setTvl(poolTvl);
+          setTvl(onChainTvl);
           setAnonymitySet(anonSet);
           setVolume24h(vol24h);
           
           // Percentage = net 24h change relative to starting TVL (standard growth rate)
-          const prevTvl = poolTvl - netChange24h;
+          const prevTvl = onChainTvl - netChange24h;
           if (vol24h === 0) {
             setVolChange(0);
           } else if (prevTvl <= 0) {
-            // If the pool started empty but now has funds, growth is +100%
             setVolChange(netChange24h > 0 ? 100 : 0);
           } else {
             const change = (netChange24h / prevTvl) * 100;
@@ -163,13 +200,12 @@ export function PoolStats() {
           setMerkleRoot(calculatedRoot);
           setLastSyncedLedger(data.lastSyncedLedger || 0);
 
-          setIsLive(true);
+          setIsOnline(true);
           setIsLoading(false);
         }
       } catch (err) {
-        // Fallback to demo mode if indexer is unreachable
         if (active) {
-          setIsLive(false);
+          setIsOnline(false);
           setIsLoading(false);
         }
       }
@@ -182,17 +218,14 @@ export function PoolStats() {
       active = false;
       clearInterval(interval);
     };
-  }, []);
+  }, [localAsset]);
 
-  const formatCurrency = (val: number, isDemo: boolean) => {
-    if (isDemo) {
-      if (val >= 1000000) return `$${(val / 1000000).toFixed(2)}M`;
-      if (val >= 1000) return `$${(val / 1000).toFixed(2)}K`;
-      return `$${val.toFixed(2)}`;
-    }
+  const formatCurrency = (val: number) => {
+    const symbol = localAsset === 'USDC' ? '$' : '';
+    const assetLabel = localAsset;
     const prefix = val < 0 ? '-' : '';
     const absVal = Math.abs(val);
-    return `${prefix}$${absVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC`;
+    return `${prefix}${symbol}${absVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${assetLabel}`;
   };
 
   const triggerCopy = (text: string) => {
@@ -201,15 +234,15 @@ export function PoolStats() {
     setTimeout(() => setCopiedText(''), 1500);
   };
 
-  const currentTvl = isLive ? tvl : DEMO_TVL;
-  const currentVolume = isLive ? volume24h : DEMO_VOLUME;
-  const currentVolChange = isLive ? volChange : DEMO_VOL_CHANGE;
-  const currentAnonSet = isLive ? anonymitySet : DEMO_ANON_SET;
+  const currentTvl = tvl;
+  const currentVolume = volume24h;
+  const currentVolChange = volChange;
+  const currentAnonSet = anonymitySet;
 
-  const currentDeposits = isLive ? depositCount : DEMO_DEPOSITS;
-  const currentTransfers = isLive ? transferCount : DEMO_TRANSFERS;
-  const currentWithdrawals = isLive ? withdrawalCount : DEMO_WITHDRAWALS;
-  const currentRoot = isLive ? (merkleRoot || DEFAULT_ROOT) : DEMO_ROOT;
+  const currentDeposits = depositCount;
+  const currentTransfers = transferCount;
+  const currentWithdrawals = withdrawalCount;
+  const currentRoot = merkleRoot || DEFAULT_ROOT;
 
   const totalCount = currentDeposits + currentTransfers + currentWithdrawals;
 
@@ -220,13 +253,29 @@ export function PoolStats() {
           <div className="flex flex-col">
             <h3 className="font-bold text-lg text-white">Invisible Pool</h3>
             <div className="flex items-center gap-1.5 mt-1">
-              <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-green-400 animate-pulse' : 'bg-amber-400'}`}></span>
+              <span className={`w-2 h-2 rounded-full ${isLoading ? 'bg-amber-400 animate-pulse' : isOnline ? 'bg-green-400 animate-pulse' : 'bg-red-500'}`}></span>
               <span className="text-[10px] font-mono font-bold tracking-wider text-[#cfc2d7]">
-                {isLoading ? 'CONNECTING...' : isLive ? 'LIVE DATA' : 'DEMO MODE'}
+                {isLoading ? 'CONNECTING...' : isOnline ? 'LIVE DATA' : 'OFFLINE'}
               </span>
             </div>
           </div>
           <span className="material-symbols-outlined text-[#00dce5]">analytics</span>
+        </div>
+
+        {/* Pool Stats Asset Selector Tabs */}
+        <div className="flex bg-white/5 p-1 rounded-lg border border-white/5 mb-6">
+          <button 
+            onClick={() => setLocalAsset('USDC')}
+            className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer border-none ${localAsset === 'USDC' ? 'bg-[#00dce5] text-black shadow-[0_0_10px_rgba(0,220,229,0.3)]' : 'text-[#cfc2d7] hover:text-white bg-transparent'}`}
+          >
+            USDC Pool
+          </button>
+          <button 
+            onClick={() => setLocalAsset('XLM')}
+            className={`flex-1 py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer border-none ${localAsset === 'XLM' ? 'bg-[#00dce5] text-black shadow-[0_0_10px_rgba(0,220,229,0.3)]' : 'text-[#cfc2d7] hover:text-white bg-transparent'}`}
+          >
+            XLM Pool
+          </button>
         </div>
         
         {isLoading ? (
@@ -240,13 +289,13 @@ export function PoolStats() {
               <div className="flex justify-between text-xs mb-2">
                 <span className="text-[#cfc2d7]">Pool TVL</span>
                 <span className="text-white font-bold font-mono">
-                  {isLive ? formatCurrency(currentTvl, false) : `$1.42B`}
+                  {formatCurrency(currentTvl)}
                 </span>
               </div>
               <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
                 <div 
                   className="h-full bg-[#8a2be2] shadow-[0_0_10px_#8a2be2] transition-all duration-500" 
-                  style={{ width: isLive ? `${Math.min(100, Math.max(10, (currentTvl / 1000) * 100))}%` : '72%' }}
+                  style={{ width: `${Math.min(100, Math.max(10, (currentTvl > 0 ? 30 + (currentTvl / (localAsset === 'USDC' ? 10000 : 100000)) * 70 : 10)))}%` }}
                 ></div>
               </div>
             </div>
@@ -256,7 +305,7 @@ export function PoolStats() {
                 <div>
                   <p className="text-[10px] text-[#cfc2d7]">24h Volume</p>
                   <p className="text-sm font-bold text-white font-mono">
-                    {formatCurrency(currentVolume, !isLive)}
+                    {formatCurrency(currentVolume)}
                   </p>
                 </div>
                 <span className={`text-xs font-semibold font-mono ${currentVolChange >= 0 ? 'text-[#00dce5]' : 'text-red-400'}`}>
@@ -329,11 +378,11 @@ export function PoolStats() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-[#cfc2d7]">Sync Status:</span>
-                    <span className={isLive ? 'text-green-400 font-bold' : 'text-amber-400'}>
-                      {isLive ? 'CONNECTED' : 'DISCONNECTED (DEMO MODE)'}
+                    <span className={isOnline ? 'text-green-400 font-bold' : 'text-red-500 font-bold'}>
+                      {isOnline ? 'CONNECTED' : 'OFFLINE'}
                     </span>
                   </div>
-                  {isLive && (
+                  {isOnline && (
                     <div className="flex justify-between">
                       <span className="text-[#cfc2d7]">Last Synced Ledger:</span>
                       <span className="text-white font-mono">{lastSyncedLedger}</span>

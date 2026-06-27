@@ -15,6 +15,7 @@ export interface ActivityLog {
   status: 'pending' | 'success' | 'verified' | 'failed';
   txHash?: string;
   details?: string;
+  asset?: 'USDC' | 'XLM';
 }
 
 export interface PrivateNote {
@@ -24,4 +25,5 @@ export interface PrivateNote {
   spent: boolean;
   txHash?: string;
   timestamp?: string;
+  assetAddress?: string;  // Stellar token contract address (USDC vs native XLM)
 }

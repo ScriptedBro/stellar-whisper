@@ -42,17 +42,20 @@ fn main(
     public_withdraw_amount: pub [u8; 32],
     public_recipient_hash: pub [u8; 32],
     output_commitment_1: pub [u8; 32],
-    output_commitment_2: pub [u8; 32]
+    output_commitment_2: pub [u8; 32],
+    asset_id: pub [u8; 32]
 ) {
     // 1. Derive sender public key from secret key
     let secret_key_field = bytes_32_to_field(secret_key);
     let sender_pubkey_field = bn254::hash_1([secret_key_field]);
 
-    // 2. Verify the spent leaf commitment: poseidon(sender_pubkey, poseidon(input_amount, nullifier_nonce))
+    // 2. Verify the spent leaf commitment: poseidon(sender_pubkey, poseidon(poseidon(input_amount, nullifier_nonce), asset_id))
+    let asset_id_field = bytes_32_to_field(asset_id);
     let input_amount_field = bytes_32_to_field(input_amount);
     let nullifier_nonce_field = bytes_32_to_field(nullifier_nonce);
     let salted_amount_field = bn254::hash_2([input_amount_field, nullifier_nonce_field]);
-    let commitment_field = bn254::hash_2([sender_pubkey_field, salted_amount_field]);
+    let asset_salted_amount_field = bn254::hash_2([salted_amount_field, asset_id_field]);
+    let commitment_field = bn254::hash_2([sender_pubkey_field, asset_salted_amount_field]);
 
     // 3. Verify the nullifier hash: poseidon(secret_key + nullifier_nonce)
     let calculated_nullifier_field = bn254::hash_2([secret_key_field, nullifier_nonce_field]);
@@ -99,7 +102,8 @@ fn main(
         let recipient_amount_field = bytes_32_to_field(recipient_amount);
         let recipient_nonce_field = bytes_32_to_field(recipient_nonce);
         let recipient_salted_amount = bn254::hash_2([recipient_amount_field, recipient_nonce_field]);
-        let derived_commitment_1_field = bn254::hash_2([recipient_pubkey_field, recipient_salted_amount]);
+        let recipient_asset_salted_amount = bn254::hash_2([recipient_salted_amount, asset_id_field]);
+        let derived_commitment_1_field = bn254::hash_2([recipient_pubkey_field, recipient_asset_salted_amount]);
         let derived_commitment_1 = field_to_u8_32(derived_commitment_1_field);
         assert(derived_commitment_1 == output_commitment_1);
     } else {
@@ -118,7 +122,8 @@ fn main(
         let change_amount_field = bytes_32_to_field(change_amount);
         let change_nonce_field = bytes_32_to_field(change_nonce);
         let change_salted_amount = bn254::hash_2([change_amount_field, change_nonce_field]);
-        let derived_commitment_2_field = bn254::hash_2([change_pubkey_field, change_salted_amount]);
+        let change_asset_salted_amount = bn254::hash_2([change_salted_amount, asset_id_field]);
+        let derived_commitment_2_field = bn254::hash_2([change_pubkey_field, change_asset_salted_amount]);
         let derived_commitment_2 = field_to_u8_32(derived_commitment_2_field);
         assert(derived_commitment_2 == output_commitment_2);
     } else {
@@ -132,9 +137,3 @@ fn main(
         assert(is_zero);
     }
 }
-
-// NOTE: The test_fixture_inputs test has been removed because the commitment formula
-// changed from poseidon(pubkey, amount) to poseidon(pubkey, poseidon(amount, nonce)).
-// All hardcoded expected values (merkle_root, output_commitments) must be regenerated.
-// Run: nargo compile && nargo prove
-// Then regenerate fixtures using the cross-layer fixture test in contracts/whisper/src/test.rs.

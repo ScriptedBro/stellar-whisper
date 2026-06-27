@@ -6,13 +6,15 @@ interface NoteSelectorProps {
   selectedNoteCommitment: string;
   setSelectedNoteCommitment: (commitment: string) => void;
   transferAmount: string;
+  selectedAsset?: 'USDC' | 'XLM';
 }
 
 export function NoteSelector({
   notes,
   selectedNoteCommitment,
   setSelectedNoteCommitment,
-  transferAmount
+  transferAmount,
+  selectedAsset = 'USDC'
 }: NoteSelectorProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const unspentNotes = useMemo(
@@ -62,7 +64,7 @@ export function NoteSelector({
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <label className="text-[10px] font-bold uppercase tracking-wider text-[#cfc2d7] block">Private Balance</label>
-            <div className="mt-1 text-lg font-bold text-white font-mono">{visibleBalance.toFixed(2)} USDC</div>
+            <div className="mt-1 text-lg font-bold text-white font-mono">{visibleBalance.toFixed(2)} {selectedAsset}</div>
           </div>
 
           <button
@@ -78,17 +80,17 @@ export function NoteSelector({
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="rounded-md bg-black/25 border border-white/5 p-3">
               <div className="text-[9px] font-bold uppercase tracking-wider text-[#cfc2d7]/60">Source</div>
-              <div className="mt-1 text-sm font-bold text-white font-mono">{sourceNote.amount.toFixed(2)} USDC</div>
+              <div className="mt-1 text-sm font-bold text-white font-mono">{sourceNote.amount.toFixed(2)} {selectedAsset}</div>
             </div>
             <div className="rounded-md bg-black/25 border border-white/5 p-3">
               <div className="text-[9px] font-bold uppercase tracking-wider text-[#cfc2d7]/60">Send</div>
               <div className="mt-1 text-sm font-bold text-[#00f4fe] font-mono">
-                {hasRequestedAmount ? requestedAmount.toFixed(2) : '0.00'} USDC
+                {hasRequestedAmount ? requestedAmount.toFixed(2) : '0.00'} {selectedAsset}
               </div>
             </div>
             <div className="rounded-md bg-black/25 border border-white/5 p-3">
               <div className="text-[9px] font-bold uppercase tracking-wider text-[#cfc2d7]/60">Private Change</div>
-              <div className="mt-1 text-sm font-bold text-[#dcb8ff] font-mono">{changeAmount.toFixed(2)} USDC</div>
+              <div className="mt-1 text-sm font-bold text-[#dcb8ff] font-mono">{changeAmount.toFixed(2)} {selectedAsset}</div>
             </div>
           </div>
         )}
@@ -117,7 +119,7 @@ export function NoteSelector({
                   }`}
                 >
                   <div className="flex justify-between items-center mb-2">
-                    <span className="font-bold text-white font-mono text-sm">{note.amount.toFixed(2)} USDC</span>
+                    <span className="font-bold text-white font-mono text-sm">{note.amount.toFixed(2)} {selectedAsset}</span>
                     <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${isSelected ? 'border-[#00f4fe]' : 'border-white/30'}`}>
                       {isSelected && <div className="w-2 h-2 rounded-full bg-[#00f4fe]"></div>}
                     </div>

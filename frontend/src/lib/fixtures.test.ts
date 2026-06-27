@@ -52,14 +52,16 @@ async function runTests() {
     failed = true;
   }
 
-  // Test 2: Commitment Derivation (now includes nonce)
+  // Test 2: Commitment Derivation (now includes nonce and asset_id)
+  const SAMPLE_ASSET_ID_HEX = "0303030303030303030303030303030303030303030303030303030303030303";
+  const assetIdBytes = hexToBytes(SAMPLE_ASSET_ID_HEX);
   let computedCommitmentHex = '';
   try {
     const amountVal = BigInt("0x" + SAMPLE_AMOUNT_HEX);
     const pubkeyBytes = hexToBytes(EXPECTED_PUBLIC_KEY_HEX);
-    const commitment = await deriveCommitment(pubkeyBytes, amountVal, SAMPLE_NULLIFIER_NONCE_HEX);
+    const commitment = await deriveCommitment(pubkeyBytes, amountVal, SAMPLE_NULLIFIER_NONCE_HEX, assetIdBytes);
     computedCommitmentHex = bytesToHexDirect(commitment);
-    console.log(`✅ [PASS] Commitment derivation (nonce-bound): ${computedCommitmentHex}`);
+    console.log(`✅ [PASS] Commitment derivation (nonce and asset-bound): ${computedCommitmentHex}`);
   } catch (err: any) {
     console.error("❌ [ERROR] Commitment derivation failed:", err.message);
     failed = true;
@@ -108,14 +110,14 @@ async function runTests() {
     const recipientNonceHex = "0404040404040404040404040404040404040404040404040404040404040404";
     const changeNonceHex = "0505050505050505050505050505050505050505050505050505050505050505";
 
-    // Output commitments now include nonces
+    // Output commitments now include nonces and asset ID
     const pubkeyBytesRecipient = hexToBytes(recipientPubkeyHex);
     const amountValRecipient = BigInt("0x" + recipientAmountHex);
-    const derivedCommitment1 = await deriveCommitment(pubkeyBytesRecipient, amountValRecipient, recipientNonceHex);
+    const derivedCommitment1 = await deriveCommitment(pubkeyBytesRecipient, amountValRecipient, recipientNonceHex, assetIdBytes);
 
     const pubkeyBytesChange = hexToBytes(changePubkeyHex);
     const amountValChange = BigInt("0x" + changeAmountHex);
-    const derivedCommitment2 = await deriveCommitment(pubkeyBytesChange, amountValChange, changeNonceHex);
+    const derivedCommitment2 = await deriveCommitment(pubkeyBytesChange, amountValChange, changeNonceHex, assetIdBytes);
 
     // Build merkle path for index 0 leaf commitment
     const merklePath = ZERO_HASHES_HEX.slice(0, 16).map(h => toNoirBytes(h));
@@ -138,6 +140,7 @@ async function runTests() {
       public_recipient_hash: toNoirBytes("00".repeat(32)),
       output_commitment_1: toNoirBytes(derivedCommitment1),
       output_commitment_2: toNoirBytes(derivedCommitment2),
+      asset_id: toNoirBytes(SAMPLE_ASSET_ID_HEX),
     };
 
     console.log("Executing Noir circuit witness generation...");

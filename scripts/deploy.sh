@@ -34,6 +34,8 @@ VERIFIER_ID=$(stellar contract deploy \
   --source $ADMIN_KEY \
   --network $NETWORK)
 echo "✅ Verifier Contract Deployed! ID: $VERIFIER_ID"
+echo "Sleeping 5 seconds to sync ledger sequence number..."
+sleep 5
 
 # 5. Deploy the asset wrapper contract (USDC wrapper)
 echo "Step 3b: Deploying USDC Token Asset Contract..."
@@ -45,6 +47,8 @@ TOKEN_ID=$(stellar contract asset deploy \
   --asset USDC:$ADMIN_ADDRESS \
   --network $NETWORK)
 echo "✅ USDC Token Asset Contract Deployed! ID: $TOKEN_ID"
+echo "Sleeping 5 seconds to sync ledger sequence number..."
+sleep 5
 
 # 6. Deploy the main whisper contract
 echo "Step 3c: Deploying Whisper Contract..."
@@ -53,6 +57,8 @@ WHISPER_ID=$(stellar contract deploy \
   --source $ADMIN_KEY \
   --network $NETWORK)
 echo "✅ Whisper Contract Deployed! ID: $WHISPER_ID"
+echo "Sleeping 5 seconds to sync ledger sequence number..."
+sleep 5
 
 # 7. Initialize the whisper contract
 echo "Step 3d: Initializing Whisper Contract on Testnet..."

@@ -12,7 +12,7 @@ Stellar Whisper is a **compliance-first, fully shielded wallet and remittance ap
 
 ## 🌟 Key Features
 
-*   **Fully Shielded Transfers**: Deposit public stablecoins (USDC/EURC) into a private Soroban-based pool and execute end-to-end transfers completely off-ledger.
+*   **Multi-Asset Shielded Pools**: Simultaneously supports both **USDC** and **XLM** shielded pools within a single contract. Users can deposit, transfer, and withdraw both assets privately, with independent balances, histories, and dashboard metrics.
 *   **In-Browser Zero-Knowledge Proving**: Witness generation, multi-scalar multiplication (MSM), and polynomial commitment compilation are computed client-side in the browser via Aztec's `@aztec/bb.js` WebAssembly engine, ensuring private keys never leave the user's device.
 *   **Double-Spend Nullifier Guard**: Prevents double-spending of shielded notes by recording deterministic, cryptographically blinded nullifiers on-chain.
 *   **Cryptographic Value Conservation**: The circuit enforces that the sum of input note values equals the sum of output note values ($\text{input} = \text{withdraw} + \text{recipient} + \text{change}$), so the contract can verify no funds were created or destroyed without learning any amounts.
@@ -96,6 +96,17 @@ To provide a seamless user experience, the ZK Spending Key (`sk_spend`) is deriv
 *   The application computes the **SHA-256** hash of the resulting signature bytes to generate the 32-byte ZK Spending Key:
     $$\text{sk\_spend} = \text{SHA-256}(\text{Signature})$$
 *   This key is cached in the browser's temporary `sessionStorage` and is wiped when the tab is closed, ensuring it is never stored on any server or disk.
+
+### 🌈 Multi-Asset Segregation & Circuit Binding
+To prevent cross-asset correlation and double-spend proof replay attacks (e.g., spending an XLM note to withdraw USDC), Stellar Whisper binds the specific asset's contract address directly into the cryptographic commitments:
+
+*   **Asset Binding in Commitments**: When creating a note, the commitment is computed by incorporating the `asset_id` (the 32-byte representation of the token's Stellar contract address):
+    $$\text{commitment} = \text{Poseidon}(pk_{zk}, \text{Poseidon}(amount, nonce, asset\_id))$$
+*   **Circuit Enforcement**: The zero-knowledge spend circuit enforces that the `asset_id` of the spent input notes matches the `asset_id` of the newly created output notes (or public withdrawal). This ensures that funds cannot change assets during a private transfer.
+*   **Dynamic UI & Analytics**: The dashboard features an independent **Invisible Pool** switcher allowing real-time tracking of:
+    *   **Pool TVL**: Total Value Locked computed on-chain for the specific asset.
+    *   **24h Volume**: Combined deposits and withdrawals over the last 24 hours.
+    *   **Anonymity Set**: Count of unique commitments/notes generated under the asset's contract.
 
 ---
 

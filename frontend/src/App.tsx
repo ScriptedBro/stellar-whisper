@@ -65,7 +65,8 @@ export default function App() {
     wallet.userAddress, 
     wallet.zkPrivateKey, 
     config.whisperContractId, 
-    balances.updateShieldedBalance
+    balances.updateShieldedBalances,
+    config.tokenContractId
   );
 
   const soroban = useSorobanCall(config.whisperContractId);
@@ -100,7 +101,8 @@ export default function App() {
     addProvingLog: soroban.addProvingLog,
     config,
     setLogs,
-    setActiveTab
+    setActiveTab,
+    selectedAsset: balances.selectedAsset
   });
 
   const fundWallet = async () => {
@@ -146,6 +148,12 @@ export default function App() {
             <VaultDashboard 
               shieldedBalance={balances.shieldedBalance}
               publicBalance={balances.publicBalance}
+              publicUsdcBalance={balances.publicUsdcBalance}
+              publicXlmBalance={balances.publicXlmBalance}
+              shieldedUsdcBalance={balances.shieldedUsdcBalance}
+              shieldedXlmBalance={balances.shieldedXlmBalance}
+              selectedAsset={balances.selectedAsset}
+              setSelectedAsset={balances.setSelectedAsset}
               isConnected={wallet.isConnected}
               isSyncing={notes.isSyncing}
               syncProgress={notes.syncProgress}
@@ -167,6 +175,9 @@ export default function App() {
               isConnected={wallet.isConnected}
               connectWallet={wallet.connectWallet}
               handleShieldDeposit={transfers.handleShieldDeposit}
+              selectedAsset={balances.selectedAsset}
+              setSelectedAsset={balances.setSelectedAsset}
+              publicBalance={balances.publicBalance}
             />
           )}
 
@@ -191,6 +202,10 @@ export default function App() {
               isConnected={wallet.isConnected}
               connectWallet={wallet.connectWallet}
               handleShieldedTransfer={transfers.handleShieldedTransfer}
+              selectedAsset={balances.selectedAsset}
+              setSelectedAsset={balances.setSelectedAsset}
+              publicBalance={balances.publicBalance}
+              shieldedBalance={balances.shieldedBalance}
             />
           )}
 

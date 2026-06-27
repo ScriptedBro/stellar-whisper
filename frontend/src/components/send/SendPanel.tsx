@@ -22,6 +22,10 @@ interface SendPanelProps {
   isConnected: boolean;
   connectWallet: () => Promise<void>;
   handleShieldedTransfer: (e: React.FormEvent) => Promise<void>;
+  selectedAsset: 'USDC' | 'XLM';
+  setSelectedAsset: (asset: 'USDC' | 'XLM') => void;
+  publicBalance: number;
+  shieldedBalance: number;
 }
 
 export function SendPanel({
@@ -43,8 +47,16 @@ export function SendPanel({
   setSelectedNoteCommitment,
   isConnected,
   connectWallet,
-  handleShieldedTransfer
+  handleShieldedTransfer,
+  selectedAsset,
+  setSelectedAsset
 }: SendPanelProps) {
+  // Filter notes to only show those belonging to the selected asset
+  const filteredNotes = notes.filter(n => {
+    const isXlm = n.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+    return selectedAsset === 'XLM' ? isXlm : !isXlm;
+  });
+
   return (
     <div className="max-w-[800px] mx-auto animate-fade-in">
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -52,9 +64,37 @@ export function SendPanel({
         {/* Form Column */}
         <div className="lg:col-span-7 space-y-6">
           <div className="glass-panel rounded-lg p-6 md:p-8 glass-inner-stroke">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#00f4fe]/20 border border-[#00f4fe]/30 mb-4 text-[#00f4fe]">
-              <div className="w-1.5 h-1.5 rounded-full bg-[#00ff87] privacy-pulse"></div>
-              <span className="text-[10px] font-mono uppercase tracking-wider">Aztec UltraHonk Pipeline</span>
+            <div className="flex items-center justify-between w-full mb-4">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#00f4fe]/20 border border-[#00f4fe]/30 text-[#00f4fe]">
+                <div className="w-1.5 h-1.5 rounded-full bg-[#00ff87] privacy-pulse"></div>
+                <span className="text-[10px] font-mono uppercase tracking-wider">Aztec UltraHonk Pipeline</span>
+              </div>
+
+              {/* Asset Selector */}
+              <div className="flex bg-white/5 p-1 rounded-full border border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setSelectedAsset('USDC')}
+                  className={`px-3 py-1 rounded-full text-[10px] font-bold tracking-wider transition-all cursor-pointer border-none ${
+                    selectedAsset === 'USDC' 
+                      ? 'bg-[#00f4fe] text-black shadow-[0_0_8px_rgba(0,244,254,0.4)]' 
+                      : 'text-[#cfc2d7] hover:text-white bg-transparent'
+                  }`}
+                >
+                  USDC
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedAsset('XLM')}
+                  className={`px-3 py-1 rounded-full text-[10px] font-bold tracking-wider transition-all cursor-pointer border-none ${
+                    selectedAsset === 'XLM' 
+                      ? 'bg-[#00f4fe] text-black shadow-[0_0_8px_rgba(0,244,254,0.4)]' 
+                      : 'text-[#cfc2d7] hover:text-white bg-transparent'
+                  }`}
+                >
+                  XLM
+                </button>
+              </div>
             </div>
             
             <h2 className="text-xl font-bold text-white mb-2">Shielded Send / Withdraw</h2>
@@ -67,10 +107,11 @@ export function SendPanel({
               {/* Note Selector */}
               {isConnected && (
                 <NoteSelector 
-                  notes={notes}
+                  notes={filteredNotes}
                   selectedNoteCommitment={selectedNoteCommitment}
                   setSelectedNoteCommitment={setSelectedNoteCommitment}
                   transferAmount={transferAmount}
+                  selectedAsset={selectedAsset}
                 />
               )}
 
@@ -140,10 +181,10 @@ export function SendPanel({
 
               {/* Amount input */}
               <div className="space-y-2">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-[#cfc2d7] block">Transfer Amount (USDC)</label>
+                <label className="text-[10px] font-bold uppercase tracking-wider text-[#cfc2d7] block">Transfer Amount ({selectedAsset})</label>
                 <input 
                   type="number"
-                  placeholder="Enter amount, e.g. 50"
+                  placeholder={`Enter amount of ${selectedAsset}, e.g. 50`}
                   value={transferAmount}
                   onChange={(e) => setTransferAmount(e.target.value)}
                   disabled={isProving || !isConnected}
@@ -171,7 +212,7 @@ export function SendPanel({
                   disabled={isProving}
                   className="w-full btn-primary py-3 rounded text-xs font-bold transition-all active:scale-95 disabled:opacity-50 cursor-pointer mt-4"
                 >
-                  {isProving ? "Calculating ZK-Proof..." : "Send Shielded Funds"}
+                  {isProving ? "Calculating ZK-Proof..." : isPrivateNoteTransfer ? `Send Shielded ${selectedAsset}` : `Withdraw ${selectedAsset}`}
                 </button>
               )}
             </form>
