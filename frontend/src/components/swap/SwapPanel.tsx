@@ -47,7 +47,7 @@ export function SwapPanel({
     });
     setFilteredNotes(notesForAsset);
     if (notesForAsset.length > 0) {
-      setSelectedNote(notesForAsset[0].nullifier_nonce);
+      setSelectedNote(notesForAsset[0].nullifierNonce);
     } else {
       setSelectedNote('');
     }
@@ -242,8 +242,8 @@ export function SwapPanel({
                     className="w-full glass-input px-4 py-2.5 text-xs text-white rounded bg-[#10131a]"
                   >
                     {filteredNotes.map((note, index) => (
-                      <option key={index} value={note.nullifier_nonce}>
-                        Note #{index + 1}: {note.amount} {fromAsset} (Nonce: skey_{note.nullifier_nonce.slice(0, 8)}...)
+                      <option key={index} value={note.nullifierNonce}>
+                        Note #{index + 1}: {note.amount} {fromAsset} (Nonce: skey_{note.nullifierNonce ? note.nullifierNonce.slice(0, 8) : ''}...)
                       </option>
                     ))}
                   </select>
