@@ -33,8 +33,8 @@ function CopyButton({ text, tooltip }: CopyButtonProps) {
 }
 
 interface SidebarProps {
-  activeTab: 'vault' | 'pool' | 'send' | 'compliance';
-  setActiveTab: (tab: 'vault' | 'pool' | 'send' | 'compliance') => void;
+  activeTab: 'vault' | 'pool' | 'send' | 'compliance' | 'liquidity' | 'swap';
+  setActiveTab: (tab: 'vault' | 'pool' | 'send' | 'compliance' | 'liquidity' | 'swap') => void;
   isConnected: boolean;
   userAddress: string;
   zkPrivateKey: string;
@@ -89,11 +89,27 @@ export function Sidebar({
         </button>
 
         <button 
+          onClick={() => setActiveTab('liquidity')}
+          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all active:translate-x-1 text-left ${activeTab === 'liquidity' ? 'bg-white/10 text-[#00dce5] border-l-4 border-[#00dce5]' : 'text-[#cfc2d7] hover:bg-white/5 hover:text-white'}`}
+        >
+          <span className="material-symbols-outlined">water_drop</span>
+          <span className="font-semibold text-sm">Liquidity Pools</span>
+        </button>
+
+        <button 
           onClick={() => setActiveTab('send')}
           className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all active:translate-x-1 text-left ${activeTab === 'send' ? 'bg-white/10 text-[#00dce5] border-l-4 border-[#00dce5]' : 'text-[#cfc2d7] hover:bg-white/5 hover:text-white'}`}
         >
           <span className="material-symbols-outlined">send</span>
           <span className="font-semibold text-sm">Private Send</span>
+        </button>
+
+        <button 
+          onClick={() => setActiveTab('swap')}
+          className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all active:translate-x-1 text-left ${activeTab === 'swap' ? 'bg-white/10 text-[#00dce5] border-l-4 border-[#00dce5]' : 'text-[#cfc2d7] hover:bg-white/5 hover:text-white'}`}
+        >
+          <span className="material-symbols-outlined">currency_exchange</span>
+          <span className="font-semibold text-sm">Private Swap</span>
         </button>
 
         <button 

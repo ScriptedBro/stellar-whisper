@@ -17,10 +17,12 @@ import { VaultDashboard } from './components/vault/VaultDashboard';
 import { DepositPanel } from './components/pool/DepositPanel';
 import { SendPanel } from './components/send/SendPanel';
 import { CompliancePanel } from './components/compliance/CompliancePanel';
+import { LiquidityPanel } from './components/liquidity/LiquidityPanel';
+import { SwapPanel } from './components/swap/SwapPanel';
 
 export default function App() {
   const [showSettings, setShowSettings] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<'vault' | 'pool' | 'send' | 'compliance'>('vault');
+  const [activeTab, setActiveTab] = useState<'vault' | 'pool' | 'send' | 'compliance' | 'liquidity' | 'swap'>('vault');
   const { showToast } = useNotification();
 
   // Deployment configuration state
@@ -224,6 +226,28 @@ export default function App() {
               zkPrivateKey={wallet.zkPrivateKey}
               connectWallet={wallet.connectWallet}
               handleGenerateCompliance={transfers.handleGenerateCompliance}
+            />
+          )}
+
+          {activeTab === 'liquidity' && (
+            <LiquidityPanel 
+              isConnected={wallet.isConnected}
+              connectWallet={wallet.connectWallet}
+              publicXlmBalance={balances.publicXlmBalance}
+              publicUsdcBalance={balances.publicUsdcBalance}
+              fetchBalances={balances.fetchBalances}
+              userAddress={wallet.userAddress}
+            />
+          )}
+
+          {activeTab === 'swap' && (
+            <SwapPanel 
+              isConnected={wallet.isConnected}
+              connectWallet={wallet.connectWallet}
+              shieldedXlmBalance={balances.shieldedXlmBalance}
+              shieldedUsdcBalance={balances.shieldedUsdcBalance}
+              notes={notes.notes}
+              fetchBalances={balances.fetchBalances}
             />
           )}
         </div>
