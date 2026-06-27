@@ -32,9 +32,9 @@ const whisperCircuit = {
 };async function checkIsSanctionedOnChain(address: string, contractId: string, sourceAddress: string): Promise<boolean> {
   try {
     const server = new rpc.Server("https://soroban-testnet.stellar.org");
-    const dummyAccount = new Account(sourceAddress, "0");
+    const simAccount = new Account(sourceAddress, "0");
     const contract = new Contract(contractId);
-    const tx = new TransactionBuilder(dummyAccount, {
+    const tx = new TransactionBuilder(simAccount, {
       fee: "100",
       networkPassphrase: Networks.TESTNET
     })
@@ -54,9 +54,9 @@ const whisperCircuit = {
 
 async function checkMerkleRootOnChain(rootBytes: Uint8Array, contractId: string, sourceAddress: string): Promise<boolean> {
   const server = new rpc.Server("https://soroban-testnet.stellar.org");
-  const dummyAccount = new Account(sourceAddress, "0");
+  const simAccount = new Account(sourceAddress, "0");
   const contract = new Contract(contractId);
-  const tx = new TransactionBuilder(dummyAccount, {
+  const tx = new TransactionBuilder(simAccount, {
     fee: "100",
     networkPassphrase: Networks.TESTNET
   })
@@ -167,7 +167,7 @@ export function useTransfers({
       return;
     }
 
-    const activeTokenContractId = selectedAsset === 'USDC' ? config.tokenContractId : 'CDLZ436FHGO726A56A3L77Z6IAGY7TKVIFH67IHX63D5KIL4S4NMM6SG';
+    const activeTokenContractId = selectedAsset === 'USDC' ? config.tokenContractId : 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
     const assetIdBytes = await getAssetId(activeTokenContractId);
 
     let commitmentBytes: Uint8Array;
@@ -262,7 +262,8 @@ export function useTransfers({
             amount: amt,
             timestamp: 'Just now',
             status: 'success',
-            txHash: txHash || 'ca80a46c313795342d08ad5f0e293315cdba9f74fb848fe4e42d8e1340953488'
+            txHash: txHash || 'ca80a46c313795342d08ad5f0e293315cdba9f74fb848fe4e42d8e1340953488',
+            asset: selectedAsset
           },
           ...prev
         ]);
@@ -287,7 +288,8 @@ export function useTransfers({
             amount: amt,
             timestamp: 'Just now',
             status: 'failed',
-            details: err
+            details: err,
+            asset: selectedAsset
           },
           ...prev
         ]);
@@ -332,11 +334,11 @@ export function useTransfers({
     addProvingLog("Initializing Aztec UltraHonk Prover engine...");
     addProvingLog("Fetching commitments list from ledger for path construction...");
 
-    const activeTokenContractId = selectedAsset === 'USDC' ? config.tokenContractId : 'CDLZ436FHGO726A56A3L77Z6IAGY7TKVIFH67IHX63D5KIL4S4NMM6SG';
+    const activeTokenContractId = selectedAsset === 'USDC' ? config.tokenContractId : 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
     const assetIdBytes = await getAssetId(activeTokenContractId);
 
     const unspentNotes = notes
-      .filter(n => !n.spent && (selectedAsset === 'USDC' ? n.assetAddress !== 'CDLZ436FHGO726A56A3L77Z6IAGY7TKVIFH67IHX63D5KIL4S4NMM6SG' : n.assetAddress === 'CDLZ436FHGO726A56A3L77Z6IAGY7TKVIFH67IHX63D5KIL4S4NMM6SG'))
+      .filter(n => !n.spent && (selectedAsset === 'USDC' ? n.assetAddress !== 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' : n.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC'))
       .sort((a, b) => a.amount - b.amount);
     let noteToSpend = unspentNotes.find(n => n.amount >= amt);
     if (!noteToSpend) {
@@ -540,7 +542,8 @@ export function useTransfers({
       public_withdraw_amount: withdrawAmountHex,
       public_recipient_hash: publicRecipientHashHex,
       output_commitment_1: outputCommitment1Hex,
-      output_commitment_2: outputCommitment2Hex
+      output_commitment_2: outputCommitment2Hex,
+      asset_id: bytesToHex(assetIdBytes)
     };
     console.log("Stellar Whisper ZK Prover Witness Constructed:", witness);
     addProvingLog("ZK Witness wired to UltraHonk circuit constraints successfully!");
@@ -579,6 +582,7 @@ export function useTransfers({
       public_recipient_hash: hexToArray(publicRecipientHashHex),
       output_commitment_1: hexToArray(outputCommitment1Hex),
       output_commitment_2: hexToArray(outputCommitment2Hex),
+      asset_id: hexToArray(bytesToHex(assetIdBytes)),
     };
 
     let proofBytes: Uint8Array;
@@ -617,7 +621,8 @@ export function useTransfers({
       xdr.ScVal.scvBytes(Buffer.from(withdrawAmountBytes)),
       xdr.ScVal.scvBytes(Buffer.from(publicRecipientHashBytes)),
       xdr.ScVal.scvBytes(Buffer.from(outputCommitment1Bytes)),
-      xdr.ScVal.scvBytes(Buffer.from(outputCommitment2Bytes))
+      xdr.ScVal.scvBytes(Buffer.from(outputCommitment2Bytes)),
+      xdr.ScVal.scvBytes(Buffer.from(assetIdBytes))
     ]);
 
     const contractAmount = isPrivateNoteTransfer ? 0n : rawWithdrawAmount;
@@ -702,7 +707,8 @@ export function useTransfers({
             recipient: isPrivateNoteTransfer ? 'Shielded Vault' : recipientAddress.slice(0, 6) + '...' + recipientAddress.slice(-4),
             timestamp: 'Just now',
             status: 'success',
-            txHash: txHash || '0x99a3c9b2e8d47b5ef0c8ad5f0e293315cdba9f74fb848fe4e42d8e1340953488'
+            txHash: txHash || '0x99a3c9b2e8d47b5ef0c8ad5f0e293315cdba9f74fb848fe4e42d8e1340953488',
+            asset: selectedAsset
           },
           ...prev
         ]);
@@ -732,7 +738,8 @@ export function useTransfers({
             amount: amt,
             timestamp: 'Just now',
             status: 'failed',
-            details: err
+            details: err,
+            asset: selectedAsset
           },
           ...prev
         ]);

@@ -79,7 +79,7 @@ export function ActivityLog({ logs }: ActivityLogProps) {
                       log.status === 'failed' ? 'text-red-400' : 
                       isCredit ? 'text-green-400' : 'text-white'
                     }`}>
-                      {isCredit ? '+' : '-'}{log.amount.toFixed(2)} USDC
+                      {isCredit ? '+' : '-'}{log.amount.toFixed(2)} {log.asset || 'USDC'}
                     </p>
                   )}
                   <p className="text-[10px] text-[#00dce5] font-bold uppercase tracking-wider">

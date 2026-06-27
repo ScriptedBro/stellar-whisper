@@ -49,13 +49,11 @@ export function SendPanel({
   connectWallet,
   handleShieldedTransfer,
   selectedAsset,
-  setSelectedAsset,
-  publicBalance,
-  shieldedBalance
+  setSelectedAsset
 }: SendPanelProps) {
   // Filter notes to only show those belonging to the selected asset
   const filteredNotes = notes.filter(n => {
-    const isXlm = n.assetAddress === 'CDLZ436FHGO726A56A3L77Z6IAGY7TKVIFH67IHX63D5KIL4S4NMM6SG';
+    const isXlm = n.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
     return selectedAsset === 'XLM' ? isXlm : !isXlm;
   });
 
@@ -113,6 +111,7 @@ export function SendPanel({
                   selectedNoteCommitment={selectedNoteCommitment}
                   setSelectedNoteCommitment={setSelectedNoteCommitment}
                   transferAmount={transferAmount}
+                  selectedAsset={selectedAsset}
                 />
               )}
 

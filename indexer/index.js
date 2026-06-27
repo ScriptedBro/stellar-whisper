@@ -3,7 +3,59 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
 import cors from 'cors';
-import { rpc } from '@stellar/stellar-sdk';
+import { rpc, xdr, scValToNative } from '@stellar/stellar-sdk';
+
+function extractTokenFromTx(envelopeXdrBase64, targetContractId) {
+  try {
+    let envelope;
+    if (typeof envelopeXdrBase64 === 'string') {
+      envelope = xdr.TransactionEnvelope.fromXDR(envelopeXdrBase64, 'base64');
+    } else {
+      envelope = envelopeXdrBase64;
+    }
+    let tx;
+    const type = envelope.switch().name;
+    if (type === 'envelopeTypeTx') {
+      tx = envelope.v1().tx();
+    } else if (type === 'envelopeTypeTxV0') {
+      tx = envelope.v0().tx();
+    } else if (type === 'envelopeTypeTxFeeBump') {
+      tx = envelope.feeBump().tx().innerTx().v1().tx();
+    } else {
+      return null;
+    }
+
+    for (const op of tx.operations()) {
+      const body = op.body();
+      if (body.switch().name === 'invokeHostFunction') {
+        const invokeOp = body.invokeHostFunctionOp();
+        const hostFn = invokeOp.hostFunction();
+        if (hostFn.switch().name === 'hostFunctionTypeInvokeContract') {
+          const invokeContract = hostFn.invokeContract();
+          
+          const contractId = scValToNative(xdr.ScVal.scvAddress(invokeContract.contractAddress()));
+          
+          if (contractId === targetContractId) {
+            const args = invokeContract.args();
+            if (args && args.length > 0) {
+              const arg0Native = scValToNative(args[0]);
+              const arg1Native = args.length > 1 ? scValToNative(args[1]) : null;
+
+              if (arg1Native && typeof arg1Native === 'string' && (arg1Native.startsWith('C') || arg1Native.startsWith('G'))) {
+                return arg1Native;
+              } else if (typeof arg0Native === 'string' && (arg0Native.startsWith('C') || arg0Native.startsWith('G'))) {
+                return arg0Native;
+              }
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Error extracting token from TX:", err);
+  }
+  return null;
+}
 import { ChannelsClient } from '@openzeppelin/relayer-plugin-channels';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -240,7 +292,19 @@ async function indexEvents() {
       let newCount = 0;
       for (const ev of eventsFetched) {
         if (!existingIds.has(ev.id)) {
-          db.events.push(sanitizeEventForDb(ev));
+          const sanitized = sanitizeEventForDb(ev);
+          try {
+            const txDetails = await server.getTransaction(ev.txHash);
+            if (txDetails && txDetails.envelopeXdr) {
+              const tokenAddress = extractTokenFromTx(txDetails.envelopeXdr, whisperContractId);
+              if (tokenAddress) {
+                sanitized.tokenAddress = tokenAddress;
+              }
+            }
+          } catch (txErr) {
+            console.error(`Failed to fetch TX details for hash ${ev.txHash}:`, txErr);
+          }
+          db.events.push(sanitized);
           newCount++;
         }
       }
@@ -317,9 +381,38 @@ app.post('/api/relay', async (req, res) => {
   }
 });
 
+async function migrateDbEvents() {
+  loadConfig();
+  if (!whisperContractId) return;
+  let updated = false;
+  for (const ev of db.events) {
+    if ((!ev.tokenAddress || !ev.tokenAddress.startsWith('C')) && ev.txHash) {
+      try {
+        console.log(`[Migration] Fetching token address for event ${ev.id}...`);
+        const txDetails = await server.getTransaction(ev.txHash);
+        if (txDetails && txDetails.envelopeXdr) {
+          const tokenAddress = extractTokenFromTx(txDetails.envelopeXdr, whisperContractId);
+          if (tokenAddress) {
+            ev.tokenAddress = tokenAddress;
+            updated = true;
+          }
+        }
+      } catch (err) {
+        console.error(`[Migration] Failed to migrate event ${ev.id}:`, err);
+      }
+    }
+  }
+  if (updated) {
+    saveDb();
+    console.log("[Migration] Database successfully migrated with token addresses.");
+  }
+}
+
 // Start server and indexer
 loadDb();
 app.listen(PORT, () => {
   console.log(`Stellar Whisper Indexer Server listening on port ${PORT}`);
-  indexEvents();
+  migrateDbEvents().then(() => {
+    indexEvents();
+  });
 });

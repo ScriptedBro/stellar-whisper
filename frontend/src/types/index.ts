@@ -15,6 +15,7 @@ export interface ActivityLog {
   status: 'pending' | 'success' | 'verified' | 'failed';
   txHash?: string;
   details?: string;
+  asset?: 'USDC' | 'XLM';
 }
 
 export interface PrivateNote {

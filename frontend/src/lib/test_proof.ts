@@ -39,18 +39,22 @@ async function main() {
   const recipientNonceHex = "0404040404040404040404040404040404040404040404040404040404040404";
   const changeNonceHex = "0505050505050505050505050505050505050505050505050505050505050505";
 
+  // Test asset ID
+  const SAMPLE_ASSET_ID_HEX = "0303030303030303030303030303030303030303030303030303030303030303";
+  const assetIdBytes = hexToBytes(SAMPLE_ASSET_ID_HEX);
+
   const pubkeyBytesRecipient = hexToBytes(recipientPubkeyHex);
   const amountValRecipient = BigInt("0x" + recipientAmountHex);
-  const derivedCommitment1 = await deriveCommitment(pubkeyBytesRecipient, amountValRecipient, recipientNonceHex);
+  const derivedCommitment1 = await deriveCommitment(pubkeyBytesRecipient, amountValRecipient, recipientNonceHex, assetIdBytes);
 
   const pubkeyBytesChange = hexToBytes(changePubkeyHex);
   const amountValChange = BigInt("0x" + changeAmountHex);
-  const derivedCommitment2 = await deriveCommitment(pubkeyBytesChange, amountValChange, changeNonceHex);
+  const derivedCommitment2 = await deriveCommitment(pubkeyBytesChange, amountValChange, changeNonceHex, assetIdBytes);
 
   // Compute input commitment and merkle root dynamically
   const pubkeyBytesInput = hexToBytes(EXPECTED_PUBLIC_KEY_HEX);
   const amountValInput = BigInt("0x" + SAMPLE_AMOUNT_HEX);
-  const inputCommitment = await deriveCommitment(pubkeyBytesInput, amountValInput, SAMPLE_NULLIFIER_NONCE_HEX);
+  const inputCommitment = await deriveCommitment(pubkeyBytesInput, amountValInput, SAMPLE_NULLIFIER_NONCE_HEX, assetIdBytes);
   const merkleRootHex = await computeLatestMerkleRootOnChain([inputCommitment]);
 
   const merklePath = ZERO_HASHES_HEX.slice(0, 16).map(h => toNoirBytes(h));
@@ -73,6 +77,7 @@ async function main() {
     public_recipient_hash: toNoirBytes("00".repeat(32)),
     output_commitment_1: toNoirBytes(derivedCommitment1),
     output_commitment_2: toNoirBytes(derivedCommitment2),
+    asset_id: toNoirBytes(SAMPLE_ASSET_ID_HEX),
   };
 
   console.log("Generating witness...");
@@ -128,7 +133,7 @@ async function main() {
     console.log("Wrote public_inputs file of size:", pisBytes.length);
   }
 
-  const rawInputs = new Uint8Array(224);
+  const rawInputs = new Uint8Array(256);
   rawInputs.set(inputs.merkle_root, 0);
   rawInputs.set(inputs.nullifier_hash, 32);
   rawInputs.set(inputs.input_amount, 64);
@@ -136,6 +141,7 @@ async function main() {
   rawInputs.set(inputs.public_recipient_hash, 128);
   rawInputs.set(inputs.output_commitment_1, 160);
   rawInputs.set(inputs.output_commitment_2, 192);
+  rawInputs.set(inputs.asset_id, 224);
   fs.writeFileSync(path.join(targetDir, 'public_inputs_raw'), Buffer.from(rawInputs));
 
   const isValid = await backend.verifyProof({

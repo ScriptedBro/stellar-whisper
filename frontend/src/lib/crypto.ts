@@ -1,5 +1,3 @@
-import { Address } from '@stellar/stellar-sdk';
-
 // Convert hex string to Uint8Array
 export const hexToBytes = (hex: string): Uint8Array => {
   let cleanHex = hex.startsWith('0x') ? hex.slice(2) : hex;
@@ -65,8 +63,9 @@ export const bytesToBigInt = (bytes: Uint8Array): bigint => {
 
 // Computes asset ID from a Stellar address string: sha256(address.toXDR())
 export const getAssetId = async (addressString: string): Promise<Uint8Array> => {
-  const addr = new Address(addressString);
-  const xdrBytes = addr.toXDR();
+  const { nativeToScVal } = await import('@stellar/stellar-sdk');
+  const scVal = nativeToScVal(addressString, { type: 'address' });
+  const xdrBytes = new Uint8Array(scVal.toXDR());
   const hash = await webCrypto.subtle.digest('SHA-256', xdrBytes);
   return new Uint8Array(hash);
 };

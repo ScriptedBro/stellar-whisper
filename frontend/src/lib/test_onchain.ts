@@ -18,7 +18,8 @@ import {
   deriveNullifier,
   hexToBytes,
   bytesToHex,
-  bigIntToBytes32
+  bigIntToBytes32,
+  getAssetId
 } from './crypto';
 import { constructMerklePath } from './merkle';
 import crypto from 'crypto';
@@ -185,7 +186,8 @@ async function main() {
   const nullifierNonceHex = nullifierNonce.toString('hex');
   
   const pubkeyBytes = await derivePubkey(secretKeyHex);
-  const commitmentBytes = await deriveCommitment(pubkeyBytes, amount, nullifierNonceHex);
+  const assetIdBytes = await getAssetId(tokenContractId);
+  const commitmentBytes = await deriveCommitment(pubkeyBytes, amount, nullifierNonceHex, assetIdBytes);
   const commitmentHex = bytesToHex(commitmentBytes);
   console.log(`Derived note commitment: ${commitmentHex}`);
   
@@ -312,6 +314,7 @@ async function main() {
     public_recipient_hash: toNoirBytes(recipientHashBytes),
     output_commitment_1: toNoirBytes("00".repeat(32)),
     output_commitment_2: toNoirBytes("00".repeat(32)),
+    asset_id: toNoirBytes(assetIdBytes)
   };
   
   console.log("Executing witness generation...");
@@ -344,7 +347,8 @@ async function main() {
     xdr.ScVal.scvBytes(Buffer.from(bigIntToBytes32(amount))), // withdrawAmountBytes
     xdr.ScVal.scvBytes(Buffer.from(recipientHashBytes)),     // publicRecipientHashBytes
     xdr.ScVal.scvBytes(Buffer.from(new Uint8Array(32))),     // outputCommitment1Bytes (zero)
-    xdr.ScVal.scvBytes(Buffer.from(new Uint8Array(32)))      // outputCommitment2Bytes (zero)
+    xdr.ScVal.scvBytes(Buffer.from(new Uint8Array(32))),      // outputCommitment2Bytes (zero)
+    xdr.ScVal.scvBytes(Buffer.from(assetIdBytes))            // asset_id public input
   ]);
   
   const amountScVal = nativeToScVal(amount, { type: "i128" });

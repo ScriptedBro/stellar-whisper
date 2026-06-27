@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { rpc, Contract, Account, TransactionBuilder, Networks, nativeToScVal, scValToNative } from '@stellar/stellar-sdk';
 
-export const XLM_CONTRACT_ID = 'CDLZ436FHGO726A56A3L77Z6IAGY7TKVIFH67IHX63D5KIL4S4NMM6SG';
+export const XLM_CONTRACT_ID = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
 
 export function useBalances(userAddress: string, tokenContractId: string, _network: string = 'testnet') {
   const [selectedAsset, setSelectedAsset] = useState<'USDC' | 'XLM'>('USDC');
@@ -55,26 +55,40 @@ export function useBalances(userAddress: string, tokenContractId: string, _netwo
         console.error("Error fetching USDC balance:", err);
       }
 
-      // 2. Fetch XLM Balance
+      // 2. Fetch XLM Balance from Horizon (canonical and robust source for native XLM)
       try {
-        const xlmContract = new Contract(XLM_CONTRACT_ID);
-        const txXlm = new TransactionBuilder(account, {
-          fee: "100",
-          networkPassphrase: Networks.TESTNET
-        })
-        .addOperation(
-          xlmContract.call("balance", nativeToScVal(address, { type: "address" }))
-        )
-        .setTimeout(30)
-        .build();
-
-        const simXlm = await server.simulateTransaction(txXlm);
-        if (rpc.Api.isSimulationSuccess(simXlm) && simXlm.result) {
-          const balBigInt = scValToNative(simXlm.result.retval);
-          setPublicXlmBalance(Number(balBigInt) / 10000000);
+        const response = await fetch(`https://horizon-testnet.stellar.org/accounts/${address}`);
+        if (response.ok) {
+          const data = await response.json();
+          const nativeBalanceEntry = data.balances.find((b: any) => b.asset_type === 'native');
+          if (nativeBalanceEntry) {
+            setPublicXlmBalance(Number(nativeBalanceEntry.balance));
+          }
+        } else {
+          throw new Error(`Horizon returned status ${response.status}`);
         }
       } catch (err) {
-        console.error("Error fetching XLM balance:", err);
+        console.error("Error fetching XLM balance from Horizon, falling back to Soroban simulation:", err);
+        try {
+          const xlmContract = new Contract(XLM_CONTRACT_ID);
+          const txXlm = new TransactionBuilder(account, {
+            fee: "100",
+            networkPassphrase: Networks.TESTNET
+          })
+          .addOperation(
+            xlmContract.call("balance", nativeToScVal(address, { type: "address" }))
+          )
+          .setTimeout(30)
+          .build();
+
+          const simXlm = await server.simulateTransaction(txXlm);
+          if (rpc.Api.isSimulationSuccess(simXlm) && simXlm.result) {
+            const balBigInt = scValToNative(simXlm.result.retval);
+            setPublicXlmBalance(Number(balBigInt) / 10000000);
+          }
+        } catch (fallbackErr) {
+          console.error("Soroban XLM balance fallback also failed:", fallbackErr);
+        }
       }
     } catch (e) {
       console.error("Error fetching balances from testnet:", e);
@@ -82,14 +96,22 @@ export function useBalances(userAddress: string, tokenContractId: string, _netwo
   }, [tokenContractId]);
 
   useEffect(() => {
-    if (userAddress) {
-      fetchBalances(userAddress);
-    } else {
+    if (!userAddress) {
       setPublicUsdcBalance(0);
       setPublicXlmBalance(0);
       setShieldedUsdcBalance(0);
       setShieldedXlmBalance(0);
+      return;
     }
+
+    fetchBalances(userAddress);
+
+    // Poll balances every 5 seconds to keep the UI in sync with on-chain changes
+    const interval = setInterval(() => {
+      fetchBalances(userAddress);
+    }, 5000);
+
+    return () => clearInterval(interval);
   }, [userAddress, fetchBalances]);
 
   // Load initial shielded balances from localStorage

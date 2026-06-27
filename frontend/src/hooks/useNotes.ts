@@ -21,9 +21,9 @@ async function checkNullifierOnChain(
 ): Promise<boolean> {
   try {
     const server = new rpc.Server("https://soroban-testnet.stellar.org");
-    const dummyAccount = new Account(sourceAddress, "0");
+    const simAccount = new Account(sourceAddress, "0");
     const contract = new Contract(contractId);
-    const tx = new TransactionBuilder(dummyAccount, {
+    const tx = new TransactionBuilder(simAccount, {
       fee: "100",
       networkPassphrase: Networks.TESTNET
     })
@@ -191,10 +191,10 @@ export function useNotes(
     if (notes.length > 0) {
       const activeNotes = notes.filter(n => !n.spent);
       const unspentUsdcSum = activeNotes
-        .filter(n => n.assetAddress !== 'CDLZ436FHGO726A56A3L77Z6IAGY7TKVIFH67IHX63D5KIL4S4NMM6SG')
+        .filter(n => n.assetAddress !== 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC')
         .reduce((sum, n) => sum + n.amount, 0);
       const unspentXlmSum = activeNotes
-        .filter(n => n.assetAddress === 'CDLZ436FHGO726A56A3L77Z6IAGY7TKVIFH67IHX63D5KIL4S4NMM6SG')
+        .filter(n => n.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC')
         .reduce((sum, n) => sum + n.amount, 0);
       if (updateShieldedBalances) {
         updateShieldedBalances(unspentUsdcSum, unspentXlmSum);
@@ -355,10 +355,13 @@ export function useNotes(
               const decrypted = await decryptNote(scanViewingKey, hexCiphertext);
               if (decrypted) {
                 console.log("Successfully decrypted note payload:", decrypted);
-                const { nullifier_nonce, amount: decryptedAmount } = decrypted;
+                const { nullifier_nonce, amount: decryptedAmount, assetAddress: decryptedAssetAddress } = decrypted;
                 
                 // Use decrypted amount if available (for shielded transfer), or fall back to event's public amount (for deposit)
                 const noteAmount = decryptedAmount !== undefined ? decryptedAmount : (Number(BigInt(rawAmount)) / 10000000);
+                
+                // Use decrypted asset address if available, falling back to eventTokenAddress
+                const finalAssetAddress = decryptedAssetAddress || eventTokenAddress;
                 
                 decryptedNotesMap.set(commitmentHex, {
                   amount: noteAmount,
@@ -367,7 +370,7 @@ export function useNotes(
                   spent: false,
                   txHash: event.txHash || '',
                   timestamp: event.ledgerClosedAt || 'Just now',
-                  assetAddress: eventTokenAddress
+                  assetAddress: finalAssetAddress
                 });
               } else {
                 console.log(`Failed to decrypt note for commitment ${commitmentHex} (belongs to another user's public key)`);
@@ -437,8 +440,8 @@ export function useNotes(
           
           let isSpent = spentNullifiers.has(nullifierHex);
           
-          // If locally marked spent but not in the event scan, double-check on-chain status
-          if (note.spent && !isSpent) {
+          // If not found in scanned events, query contract directly on-chain to check spent status
+          if (!isSpent) {
             const simulationSource = userAddress;
             isSpent = await checkNullifierOnChain(
               nullifierBytes,
@@ -521,9 +524,14 @@ export function useNotes(
       localStorage.setItem(commitmentsStorageKey, JSON.stringify(finalCommitmentsList));
       
       const activeNotes = finalNotesList.filter(n => !n.spent);
-      const unspentSum = activeNotes.reduce((sum, n) => sum + n.amount, 0);
-      if (updateShieldedBalance) {
-        updateShieldedBalance(unspentSum);
+      const usdcSum = activeNotes
+        .filter(n => !n.assetAddress || n.assetAddress === usdcContractId)
+        .reduce((sum, n) => sum + n.amount, 0);
+      const xlmSum = activeNotes
+        .filter(n => n.assetAddress && n.assetAddress !== usdcContractId)
+        .reduce((sum, n) => sum + n.amount, 0);
+      if (updateShieldedBalances) {
+        updateShieldedBalances(usdcSum, xlmSum);
       }
 
       // --- CANONICAL TRANSACTION HISTORY RECONSTRUCTION ---
@@ -631,29 +639,38 @@ export function useNotes(
         }
 
         if (isDeposit && depositCommitment && decryptedNotesMap.has(depositCommitment)) {
+          const depNote = decryptedNotesMap.get(depositCommitment);
+          const depAsset = depNote?.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' ? 'XLM' : 'USDC';
           reconstructed.push({
             id: txHash + "-deposit",
             type: 'deposit',
             amount: depositAmount,
             timestamp: eventTimestamp,
             status: 'success',
-            txHash: txHash
+            txHash: txHash,
+            asset: depAsset
           });
         } else if (weSpent && isWithdrawal && spentNote) {
+          const changeNote = weReceivedNotes.find(n => n.commitment !== spentNote!.commitment);
+          const changeAmount = changeNote ? changeNote.amount : 0;
+          const withdrawnAmount = spentNote.amount - changeAmount;
+          const spentAsset = spentNote.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' ? 'XLM' : 'USDC';
           reconstructed.push({
             id: txHash + "-withdrawal",
             type: 'transfer',
-            amount: spentNote.amount,
+            amount: withdrawnAmount,
             recipient: 'Public Account (Withdrawn)',
             timestamp: eventTimestamp,
             status: 'success',
             txHash: txHash,
-            details: 'Withdrawal from shielded pool'
+            details: 'Withdrawal from shielded pool',
+            asset: spentAsset
           });
         } else if (weSpent && spentNote) {
           const changeNote = weReceivedNotes.find(n => n.commitment !== spentNote!.commitment);
           const changeAmount = changeNote ? changeNote.amount : 0;
           const sentAmount = spentNote.amount - changeAmount;
+          const spentAsset = spentNote.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' ? 'XLM' : 'USDC';
 
           if (sentAmount > 0) {
             reconstructed.push({
@@ -664,11 +681,13 @@ export function useNotes(
               timestamp: eventTimestamp,
               status: 'success',
               txHash: txHash,
-              details: 'Shielded transfer sent'
+              details: 'Shielded transfer sent',
+              asset: spentAsset
             });
           }
         } else if (weReceivedNotes.length > 0 && !isDeposit) {
           for (const note of weReceivedNotes) {
+            const recvAsset = note.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' ? 'XLM' : 'USDC';
             reconstructed.push({
               id: txHash + "-transfer-receive-" + note.commitment.slice(0, 6),
               type: 'transfer',
@@ -677,7 +696,8 @@ export function useNotes(
               timestamp: eventTimestamp,
               status: 'success',
               txHash: txHash,
-              details: 'Shielded transfer received'
+              details: 'Shielded transfer received',
+              asset: recvAsset
             });
           }
         }
@@ -722,12 +742,20 @@ export function useNotes(
       localStorage.setItem(`whisper_notes_${userAddress}`, JSON.stringify(updated));
       setAllCommitments(updated.map(n => n.commitment));
       
-      const unspentSum = updated.filter(n => !n.spent).reduce((sum, n) => sum + n.amount, 0);
-      if (updateShieldedBalance) {
-        updateShieldedBalance(unspentSum);
+      const activeNotes = updated.filter(n => !n.spent);
+      const usdcSum = activeNotes
+        .filter(n => !n.assetAddress || n.assetAddress === usdcContractId)
+        .reduce((sum, n) => sum + n.amount, 0);
+      const xlmSum = activeNotes
+        .filter(n => n.assetAddress && n.assetAddress !== usdcContractId)
+        .reduce((sum, n) => sum + n.amount, 0);
+      if (updateShieldedBalances) {
+        updateShieldedBalances(usdcSum, xlmSum);
       }
       return updated;
     });
+    // Trigger on-chain check immediately for newly imported notes
+    syncNotesFromChain(true);
   };
 
   // Background polling for real-time updates (every 5 seconds)

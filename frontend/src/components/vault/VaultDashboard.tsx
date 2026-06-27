@@ -58,10 +58,6 @@ interface VaultDashboardProps {
 export function VaultDashboard({ 
   shieldedBalance,
   publicBalance,
-  publicUsdcBalance,
-  publicXlmBalance,
-  shieldedUsdcBalance,
-  shieldedXlmBalance,
   selectedAsset,
   setSelectedAsset,
   isConnected,
@@ -74,7 +70,11 @@ export function VaultDashboard({
   importNotes
 }: VaultDashboardProps) {
   const { showToast, showAlert } = useNotification();
-  const activeNotes = notes.filter(n => !n.spent);
+  const activeNotes = notes.filter(n => {
+    if (n.spent) return false;
+    const isXlm = n.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+    return selectedAsset === 'XLM' ? isXlm : !isXlm;
+  });
 
   const handleExportBackup = () => {
     if (notes.length === 0) {
@@ -226,7 +226,7 @@ export function VaultDashboard({
       </div>
 
       {/* Invisible Pool Stats */}
-      <PoolStats />
+      <PoolStats selectedAsset={selectedAsset} />
 
       {/* Recent Private Activity */}
       <ActivityLog logs={logs} />
@@ -312,7 +312,7 @@ export function VaultDashboard({
               </div>
             ) : (
               activeNotes.map((note) => {
-                const isXlm = note.assetAddress === 'CDLZ436FHGO726A56A3L77Z6IAGY7TKVIFH67IHX63D5KIL4S4NMM6SG';
+                const isXlm = note.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
                 return (
                   <div 
                     key={note.commitment} 
