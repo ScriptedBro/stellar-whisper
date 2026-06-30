@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { rpc, scValToNative, xdr, Contract, Account, TransactionBuilder, Networks, nativeToScVal } from '@stellar/stellar-sdk';
 import type { PrivateNote, ActivityLog } from '../types';
-import { 
+import { XLM_CONTRACT_ID, RPC_URL } from '../config/constants';
+import {
   deriveViewingKey, 
   deriveNullifier, 
   decryptNote, 
@@ -20,7 +21,7 @@ async function checkNullifierOnChain(
   sourceAddress: string
 ): Promise<boolean> {
   try {
-    const server = new rpc.Server("https://soroban-testnet.stellar.org");
+    const server = new rpc.Server(RPC_URL);
     const simAccount = new Account(sourceAddress, "0");
     const contract = new Contract(contractId);
     const tx = new TransactionBuilder(simAccount, {
@@ -86,7 +87,7 @@ export function useNotes(
   zkPrivateKey: string, 
   whisperContractId: string,
   updateShieldedBalances?: (usdcBal: number, xlmBal: number) => void,
-  usdcContractId: string = 'CCD7B5ENZPTMYOB7XZ6VYLCABAQ66TB4UY5BEAQWCZMHMNAXPWKBKXYR'
+  usdcContractId: string = ''
 ) {
   const [notes, setNotes] = useState<PrivateNote[]>([]);
   const [selectedNoteCommitment, setSelectedNoteCommitment] = useState<string>('');
@@ -130,7 +131,6 @@ export function useNotes(
 
     const storedContractId = localStorage.getItem(`whisper_active_contract_${userAddress}`);
     if (!storedContractId || storedContractId !== whisperContractId) {
-      console.log(`Detected contract redeployment (from ${storedContractId} to ${whisperContractId}). Clearing local storage keys to avoid desync.`);
       localStorage.removeItem(`whisper_notes_${userAddress}`);
       localStorage.removeItem(`whisper_shielded_balance_${userAddress}`);
       localStorage.removeItem(`whisper_shielded_balance_usdc_${userAddress}`);
@@ -191,10 +191,10 @@ export function useNotes(
     if (notes.length > 0) {
       const activeNotes = notes.filter(n => !n.spent);
       const unspentUsdcSum = activeNotes
-        .filter(n => n.assetAddress !== 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC')
+        .filter(n => n.assetAddress !== XLM_CONTRACT_ID)
         .reduce((sum, n) => sum + n.amount, 0);
       const unspentXlmSum = activeNotes
-        .filter(n => n.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC')
+        .filter(n => n.assetAddress === XLM_CONTRACT_ID)
         .reduce((sum, n) => sum + n.amount, 0);
       if (updateShieldedBalances) {
         updateShieldedBalances(unspentUsdcSum, unspentXlmSum);
@@ -240,7 +240,7 @@ export function useNotes(
     
     try {
       const scanViewingKey = await deriveViewingKey(zkPrivateKey);
-      const server = new rpc.Server("https://soroban-testnet.stellar.org");
+    const server = new rpc.Server(RPC_URL);
       
       setSyncProgress('Fetching latest ledger sequence...');
       const latestLedger = await server.getLatestLedger();
@@ -251,7 +251,6 @@ export function useNotes(
       let usedIndexer = false;
 
       try {
-        console.log("Attempting to sync events from local indexer...");
         setSyncProgress("Querying local indexer...");
         const indexerResponse = await fetch("http://localhost:8123/api/events");
         if (indexerResponse.ok) {
@@ -261,7 +260,7 @@ export function useNotes(
             usedIndexer = true;
             console.log(`Successfully fetched ${events.length} events from local indexer.`);
           } else {
-            console.warn(`Local indexer is running for a different contract: ${indexerData.contractId} vs current ${whisperContractId}`);
+            console.warn(`Indexer contract mismatch: ${indexerData.contractId} vs ${whisperContractId}`);
           }
         }
       } catch (err) {
@@ -270,12 +269,10 @@ export function useNotes(
 
       if (!usedIndexer) {
         if (!isSilent) setSyncProgress(`Scanning blockchain history...`);
-        console.log(`Syncing notes: querying contract ${whisperContractId} from ledger ${startLedger} to ${endLedger}`);
         try {
           events = await fetchContractEvents(server, whisperContractId, startLedger);
         } catch (e: any) {
           const errorMsg = e.message || String(e);
-          console.warn(`Initial event query failed: ${errorMsg}`);
           const match = errorMsg.match(/range:\s*(\d+)/i) || errorMsg.match(/(\d+)\s*-\s*(\d+)/);
           if (match && match[1]) {
             const minLedger = parseInt(match[1], 10);
@@ -299,7 +296,6 @@ export function useNotes(
       for (const event of events) {
         try {
           const topics = (event.topic || []).map((t: any) => scValToNative(xdr.ScVal.fromXDR(t as any, "base64")));
-          console.log("Raw event topics from blockchain:", topics);
           
           const rawEventType = topics[0];
           let eventType = "";
@@ -308,59 +304,55 @@ export function useNotes(
           } else if (rawEventType && (rawEventType instanceof Uint8Array)) {
             eventType = new TextDecoder().decode(rawEventType);
           } else if (rawEventType && typeof rawEventType === 'object') {
-            if (rawEventType.constructor?.name === 'Buffer' || rawEventType.constructor?.name === 'Uint8Array') {
-              eventType = new TextDecoder().decode(Uint8Array.from(rawEventType));
-            } else {
-              eventType = rawEventType.toString();
-            }
+            eventType = rawEventType.toString();
           } else if (rawEventType) {
             eventType = String(rawEventType);
           }
           
-          console.log(`Parsed event type: "${eventType}"`);
-          
           const data = scValToNative(xdr.ScVal.fromXDR(event.value as any, "base64"));
-          console.log(`${eventType} event value data:`, data);
-          
-          if (eventType === "deposit" || eventType === "shielded_output") {
-            console.log("=== Processing deposit/shielded_output event ===");
-            console.log("  - event:", event);
-            const commitmentVal = data && typeof data === 'object' 
-              ? (data.commitment || data.Commitment || (Array.isArray(data) ? data[0] : undefined)) 
+
+          if (eventType === "deposit" || eventType === "shielded_output" || eventType === "shielded_swap") {
+            
+            const isSwap = eventType === "shielded_swap";
+            const commitmentVal = data && typeof data === 'object'
+              ? (isSwap
+                  ? (data.new_commitment || data.newCommitment || (Array.isArray(data) ? data[5] : undefined))
+                  : (data.commitment || data.Commitment || (Array.isArray(data) ? data[0] : undefined)))
               : undefined;
-            console.log("  - commitmentVal:", commitmentVal);
+
             if (!commitmentVal) {
-              console.warn("Event is missing commitment field:", data);
               continue;
             }
             const commitmentHex = bytesToHex(commitmentVal);
-            console.log("  - commitmentHex:", commitmentHex);
             allCommitmentsBytes.push(new Uint8Array(commitmentVal as any));
             
-            const tokenVal = data && typeof data === 'object' 
-              ? (data.token || data.Token) 
+            const tokenVal = data && typeof data === 'object'
+              ? (isSwap
+                  ? (data.token_out || data.tokenOut || (Array.isArray(data) ? data[2] : undefined))
+                  : (data.token || data.Token || (Array.isArray(data) ? data[1] : undefined)))
               : undefined;
             const eventTokenAddress = tokenVal ? tokenVal.toString() : usdcContractId;
 
-            const rawAmount = data && typeof data === 'object' 
-              ? (data.amount || data.Amount || 0n) 
+            const rawAmount = data && typeof data === 'object'
+              ? (isSwap
+                  ? (data.amount_out || data.amountOut || (Array.isArray(data) ? data[4] : undefined))
+                  : (data.amount || data.Amount || (Array.isArray(data) ? data[3] : 0n)))
               : 0n;
-            const encryptedNoteVal = data && typeof data === 'object' 
-              ? (data.encrypted_note || data.encryptedNote || data.EncryptedNote || (Array.isArray(data) ? data[2] : undefined)) 
+            
+            const encryptedNoteVal = data && typeof data === 'object'
+              ? (isSwap
+                  ? (data.encrypted_note || data.encryptedNote || data.EncryptedNote || (Array.isArray(data) ? data[6] : undefined))
+                  : (data.encrypted_note || data.encryptedNote || data.EncryptedNote || (Array.isArray(data) ? data[2] : undefined)))
               : undefined;
             const hexCiphertext = encryptedNoteVal ? bytesToHex(encryptedNoteVal) : "";
             
             if (hexCiphertext) {
-              console.log(`Decrypting note for commitment ${commitmentHex} with ciphertext length ${hexCiphertext.length}...`);
               const decrypted = await decryptNote(scanViewingKey, hexCiphertext);
               if (decrypted) {
-                console.log("Successfully decrypted note payload:", decrypted);
                 const { nullifier_nonce, amount: decryptedAmount, assetAddress: decryptedAssetAddress } = decrypted;
                 
-                // Use decrypted amount if available (for shielded transfer), or fall back to event's public amount (for deposit)
-                const noteAmount = decryptedAmount !== undefined ? decryptedAmount : (Number(BigInt(rawAmount)) / 10000000);
-                
-                // Use decrypted asset address if available, falling back to eventTokenAddress
+                const rawHuman = Number(BigInt(rawAmount)) / 10000000;
+                const noteAmount = decryptedAmount !== undefined ? Math.round(decryptedAmount * 10000000) / 10000000 : Math.round(rawHuman * 10000000) / 10000000;
                 const finalAssetAddress = decryptedAssetAddress || eventTokenAddress;
                 
                 decryptedNotesMap.set(commitmentHex, {
@@ -372,17 +364,14 @@ export function useNotes(
                   timestamp: event.ledgerClosedAt || 'Just now',
                   assetAddress: finalAssetAddress
                 });
-              } else {
-                console.log(`Failed to decrypt note for commitment ${commitmentHex} (belongs to another user's public key)`);
               }
             }
-          } else if (eventType === "withdrawal" || eventType === "shielded_transfer") {
+          } else if (eventType === "withdrawal" || eventType === "shielded_transfer" || eventType === "shielded_swap") {
             const nullifierVal = data && typeof data === 'object' 
               ? (data.nullifier || data.Nullifier || (Array.isArray(data) ? data[0] : undefined)) 
               : undefined;
             if (nullifierVal) {
               const nullifierHex = bytesToHex(nullifierVal);
-              console.log(`Found spent nullifier hash from ${eventType}: ${nullifierHex}`);
               spentNullifiers.add(nullifierHex);
             }
           }
@@ -414,7 +403,6 @@ export function useNotes(
       }
       
       const commitmentHexes = allCommitmentsBytes.map(bytes => bytesToHex(bytes));
-      console.log("=== useNotes commitmentHexes ===", commitmentHexes);
       
       // Create a map of existing notes keyed by commitment for merging
       const existingNotesMap = new Map<string, PrivateNote>();
@@ -506,8 +494,6 @@ export function useNotes(
         }
       }
       
-      console.log("=== useNotes finalCommitmentsList ===", finalCommitmentsList);
-
       if (finalCommitmentsList.length > 0) {
         const combinedCommitmentsBytes = finalCommitmentsList.map(hex => hexToBytes(hex));
         const rootHex = await computeLatestMerkleRootOnChain(combinedCommitmentsBytes);
@@ -563,9 +549,13 @@ export function useNotes(
         let weReceivedNotes: PrivateNote[] = [];
         let isWithdrawal = false;
         let isDeposit = false;
+        let isSwap = false;
         let depositAmount = 0;
         let depositCommitment = "";
         let eventTimestamp = "Just now";
+        let swapInAmount = 0;
+        let swapOutAmount = 0;
+        let swapTokenOut = "";
 
         for (const event of txEvents) {
           if (event.ledgerClosedAt) {
@@ -625,6 +615,22 @@ export function useNotes(
                   spentNote = nullifierNoteMap.get(nullifierHex);
                 }
               }
+            } else if (eventType === "shielded_swap") {
+              isSwap = true;
+              const nullifierVal = valData && typeof valData === 'object' ? (valData.nullifier || valData.Nullifier) : undefined;
+              if (nullifierVal) {
+                const nullifierHex = bytesToHex(nullifierVal);
+                if (nullifierNoteMap.has(nullifierHex)) {
+                  weSpent = true;
+                  spentNote = nullifierNoteMap.get(nullifierHex);
+                }
+              }
+              const rawAmountIn = valData && typeof valData === 'object' ? (valData.amount_in || valData.amountIn || 0n) : 0n;
+              const rawAmountOut = valData && typeof valData === 'object' ? (valData.amount_out || valData.amountOut || 0n) : 0n;
+              swapInAmount = Number(BigInt(rawAmountIn)) / 10000000;
+              swapOutAmount = Number(BigInt(rawAmountOut)) / 10000000;
+              const tokenOutVal = valData && typeof valData === 'object' ? (valData.token_out || valData.tokenOut) : undefined;
+              swapTokenOut = tokenOutVal ? tokenOutVal.toString() : "";
             }
           } catch (e) {
             console.warn("Error parsing event in log reconstruction:", e);
@@ -638,9 +644,23 @@ export function useNotes(
           }
         }
 
-        if (isDeposit && depositCommitment && decryptedNotesMap.has(depositCommitment)) {
+        if (isSwap && weSpent && spentNote) {
+          const assetIn = spentNote.assetAddress === XLM_CONTRACT_ID ? 'XLM' : 'USDC';
+          const assetOut = swapTokenOut === XLM_CONTRACT_ID ? 'XLM' : 'USDC';
+          reconstructed.push({
+            id: txHash + "-swap",
+            type: 'swap' as any,
+            amount: swapInAmount,
+            recipient: `${swapOutAmount.toFixed(2)} ${assetOut}`,
+            timestamp: eventTimestamp,
+            status: 'success',
+            txHash: txHash,
+            details: `Swapped ${swapInAmount} ${assetIn} for ${swapOutAmount.toFixed(2)} ${assetOut}`,
+            asset: assetIn
+          });
+        } else if (isDeposit && depositCommitment && decryptedNotesMap.has(depositCommitment)) {
           const depNote = decryptedNotesMap.get(depositCommitment);
-          const depAsset = depNote?.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' ? 'XLM' : 'USDC';
+          const depAsset = depNote?.assetAddress === XLM_CONTRACT_ID ? 'XLM' : 'USDC';
           reconstructed.push({
             id: txHash + "-deposit",
             type: 'deposit',
@@ -654,7 +674,7 @@ export function useNotes(
           const changeNote = weReceivedNotes.find(n => n.commitment !== spentNote!.commitment);
           const changeAmount = changeNote ? changeNote.amount : 0;
           const withdrawnAmount = spentNote.amount - changeAmount;
-          const spentAsset = spentNote.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' ? 'XLM' : 'USDC';
+          const spentAsset = spentNote.assetAddress === XLM_CONTRACT_ID ? 'XLM' : 'USDC';
           reconstructed.push({
             id: txHash + "-withdrawal",
             type: 'transfer',
@@ -670,7 +690,7 @@ export function useNotes(
           const changeNote = weReceivedNotes.find(n => n.commitment !== spentNote!.commitment);
           const changeAmount = changeNote ? changeNote.amount : 0;
           const sentAmount = spentNote.amount - changeAmount;
-          const spentAsset = spentNote.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' ? 'XLM' : 'USDC';
+          const spentAsset = spentNote.assetAddress === XLM_CONTRACT_ID ? 'XLM' : 'USDC';
 
           if (sentAmount > 0) {
             reconstructed.push({
@@ -687,7 +707,7 @@ export function useNotes(
           }
         } else if (weReceivedNotes.length > 0 && !isDeposit) {
           for (const note of weReceivedNotes) {
-            const recvAsset = note.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' ? 'XLM' : 'USDC';
+            const recvAsset = note.assetAddress === XLM_CONTRACT_ID ? 'XLM' : 'USDC';
             reconstructed.push({
               id: txHash + "-transfer-receive-" + note.commitment.slice(0, 6),
               type: 'transfer',
@@ -762,14 +782,15 @@ export function useNotes(
   useEffect(() => {
     if (!userAddress || !zkPrivateKey) return;
 
-    const interval = setInterval(() => {
-      if (!isSyncing) {
-        syncNotesFromChain(true);
+    let syncPromise: Promise<void> | null = null;
+    const interval = setInterval(async () => {
+      if (!syncPromise) {
+        syncPromise = syncNotesFromChain(true).finally(() => { syncPromise = null; });
       }
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [userAddress, zkPrivateKey, isSyncing]);
+  }, [userAddress, zkPrivateKey]);
 
   return {
     notes,

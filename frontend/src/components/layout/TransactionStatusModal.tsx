@@ -1,7 +1,7 @@
 import { useState } from 'react';
 
 interface TransactionStatusModalProps {
-  type: 'deposit' | 'transfer' | 'withdraw';
+  type: 'deposit' | 'transfer' | 'withdraw' | 'swap';
   status: 'idle' | 'success' | 'failed';
   amount?: number;
   txHash?: string;
@@ -9,6 +9,9 @@ interface TransactionStatusModalProps {
   nullifier?: string;
   error?: string;
   onClose: () => void;
+  assetSymbol?: string;
+  toAssetSymbol?: string;
+  toAmount?: number;
 }
 
 export function TransactionStatusModal({
@@ -19,7 +22,10 @@ export function TransactionStatusModal({
   commitment,
   nullifier,
   error,
-  onClose
+  onClose,
+  assetSymbol,
+  toAssetSymbol,
+  toAmount
 }: TransactionStatusModalProps) {
   const [copiedCommitment, setCopiedCommitment] = useState(false);
   const [copiedNullifier, setCopiedNullifier] = useState(false);
@@ -72,6 +78,14 @@ export function TransactionStatusModal({
           failDesc: 'An error occurred while verifying the ZK proof and executing the withdrawal.',
           amountLabel: 'Amount Withdrawn:'
         };
+      case 'swap':
+        return {
+          successTitle: 'Private Swap Successful!',
+          successDesc: 'Your shielded assets have been successfully swapped within the private pool using a ZK proof.',
+          failTitle: 'Private Swap Failed',
+          failDesc: 'An error occurred while attempting to verify the ZK proof and execute the private swap.',
+          amountLabel: 'Amount Swapped:'
+        };
     }
   };
 
@@ -94,7 +108,13 @@ export function TransactionStatusModal({
             <div className="bg-black/40 border border-white/5 rounded-lg p-4 text-left space-y-3 font-sans text-xs mt-4">
               <div className="flex justify-between items-center border-b border-white/5 pb-2">
                 <span className="text-[#cfc2d7]/70">{amountLabel}</span>
-                <span className="text-[#00f4fe] font-bold font-mono">{amount} USDC</span>
+                {type === 'swap' ? (
+                  <span className="text-[#00f4fe] font-bold font-mono">
+                    {amount} {assetSymbol || 'USDC'} ➔ {toAmount} {toAssetSymbol || 'XLM'}
+                  </span>
+                ) : (
+                  <span className="text-[#00f4fe] font-bold font-mono">{amount} {assetSymbol || 'USDC'}</span>
+                )}
               </div>
 
               {commitment && (

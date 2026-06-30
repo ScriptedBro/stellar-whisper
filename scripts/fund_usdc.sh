@@ -7,6 +7,10 @@ if [ -z "$1" ]; then
 fi
 
 RECIPIENT_ADDRESS="$1"
+AMOUNT_USDC="${2:-1000}"
+# Convert to stroops (7 decimals)
+RAW_AMOUNT=$(python3 -c "print(int(float('${AMOUNT_USDC}') * 10000000))")
+
 CONFIG_FILE="frontend/src/config/deployed.json"
 
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -21,8 +25,9 @@ ADMIN_ADDRESS=$(grep -o '"adminAddress": "[^"]*' $CONFIG_FILE | grep -o '[^"]*$'
 echo "USDC Token Contract ID: $TOKEN_CONTRACT_ID"
 echo "Admin/Issuer Address: $ADMIN_ADDRESS"
 echo "Recipient Address: $RECIPIENT_ADDRESS"
+echo "Amount: $AMOUNT_USDC USDC ($RAW_AMOUNT stroops)"
 
-echo "Minting/transferring 1,000 mock USDC to recipient..."
+echo "Minting/transferring $AMOUNT_USDC mock USDC to recipient..."
 stellar contract invoke \
   --id "$TOKEN_CONTRACT_ID" \
   --source alice \
@@ -31,7 +36,7 @@ stellar contract invoke \
   transfer \
   --from "$ADMIN_ADDRESS" \
   --to "$RECIPIENT_ADDRESS" \
-  --amount 10000000000
+  --amount "$RAW_AMOUNT"
 
-echo "✅ Success! Funded $RECIPIENT_ADDRESS with 1,000 USDC."
+echo "✅ Success! Funded $RECIPIENT_ADDRESS with $AMOUNT_USDC USDC."
 echo "Please make sure you have added the trustline in Freighter first if the transaction failed."

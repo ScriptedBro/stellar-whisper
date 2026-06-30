@@ -17,40 +17,23 @@ import { VaultDashboard } from './components/vault/VaultDashboard';
 import { DepositPanel } from './components/pool/DepositPanel';
 import { SendPanel } from './components/send/SendPanel';
 import { CompliancePanel } from './components/compliance/CompliancePanel';
+import { LiquidityPanel } from './components/liquidity/LiquidityPanel';
+import { SwapPanel } from './components/swap/SwapPanel';
 
 export default function App() {
   const [showSettings, setShowSettings] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<'vault' | 'pool' | 'send' | 'compliance'>('vault');
+  const [activeTab, setActiveTab] = useState<'vault' | 'pool' | 'send' | 'compliance' | 'liquidity' | 'swap'>('vault');
   const { showToast } = useNotification();
 
-  // Deployment configuration state
-  const [config] = useState<Config>(() => {
-    // Try to load deployed config synchronously if available
-    try {
-      // Note: Vite doesn't support dynamic require, but we can still use import.meta.env
-      return {
-        network: import.meta.env.VITE_NETWORK || DEFAULT_CONFIG.network,
-        adminAddress: import.meta.env.VITE_ADMIN_ADDRESS || DEFAULT_CONFIG.adminAddress,
-        tokenContractId: import.meta.env.VITE_TOKEN_CONTRACT_ID || DEFAULT_CONFIG.tokenContractId,
-        verifierContractId: import.meta.env.VITE_VERIFIER_CONTRACT_ID || DEFAULT_CONFIG.verifierContractId,
-        whisperContractId: import.meta.env.VITE_WHISPER_CONTRACT_ID || DEFAULT_CONFIG.whisperContractId
-      };
-    } catch {
-      return DEFAULT_CONFIG;
-    }
-  });
-
-  useEffect(() => {
-    // Dynamic import to merge locally deployed config
-    import('./config/deployed.json')
-      .then((data) => {
-        // Since we're removing setConfig, we'll just log this instead
-        console.log("Deployed config available, but config is immutable in real mode:", data.default);
-      })
-      .catch(() => {
-        console.log("No deployed.json config override found, using environment/default settings.");
-      });
-  }, []);
+  const [config] = useState<Config>(() => ({
+    network: DEFAULT_CONFIG.network,
+    adminAddress: DEFAULT_CONFIG.adminAddress,
+    tokenContractId: DEFAULT_CONFIG.tokenContractId,
+    tokenBContractId: DEFAULT_CONFIG.tokenBContractId,
+    xlmContractId: DEFAULT_CONFIG.xlmContractId,
+    verifierContractId: DEFAULT_CONFIG.verifierContractId,
+    whisperContractId: DEFAULT_CONFIG.whisperContractId
+  }));
 
   // Initialize modular hooks
   const wallet = useWallet();
@@ -200,6 +183,7 @@ export default function App() {
               selectedNoteCommitment={notes.selectedNoteCommitment}
               setSelectedNoteCommitment={notes.setSelectedNoteCommitment}
               isConnected={wallet.isConnected}
+              isSyncing={notes.isSyncing}
               connectWallet={wallet.connectWallet}
               handleShieldedTransfer={transfers.handleShieldedTransfer}
               selectedAsset={balances.selectedAsset}
@@ -226,28 +210,55 @@ export default function App() {
               handleGenerateCompliance={transfers.handleGenerateCompliance}
             />
           )}
+
+          {activeTab === 'liquidity' && (
+            <LiquidityPanel 
+              isConnected={wallet.isConnected}
+              connectWallet={wallet.connectWallet}
+              publicXlmBalance={balances.publicXlmBalance}
+              publicUsdcBalance={balances.publicUsdcBalance}
+              whisperContractId={config.whisperContractId}
+              executeSorobanCall={soroban.executeSorobanCall}
+              userAddress={wallet.userAddress}
+              fetchBalances={balances.fetchBalances}
+            />
+          )}
+
+          {activeTab === 'swap' && (
+            <SwapPanel 
+              isConnected={wallet.isConnected}
+              connectWallet={wallet.connectWallet}
+              shieldedXlmBalance={balances.shieldedXlmBalance}
+              shieldedUsdcBalance={balances.shieldedUsdcBalance}
+              notes={notes.notes}
+              setNotes={notes.setNotes}
+              zkPrivateKey={wallet.zkPrivateKey}
+              derivedViewingKey={wallet.derivedViewingKey}
+              allCommitments={notes.allCommitments}
+              setAllCommitments={notes.setAllCommitments}
+              executeSorobanCall={soroban.executeSorobanCall}
+              config={config}
+              fetchBalances={balances.fetchBalances}
+              userAddress={wallet.userAddress}
+              syncNotesFromChain={notes.syncNotesFromChain}
+              isProving={soroban.isProving}
+              provingProgress={soroban.provingProgress}
+              provingLogs={soroban.provingLogs}
+              setIsProving={soroban.setIsProving}
+              setProvingProgress={soroban.setProvingProgress}
+              setProvingLogs={soroban.setProvingLogs}
+              addProvingLog={soroban.addProvingLog}
+              setTransferStatus={transfers.setTransferStatus}
+              setLogs={setLogs}
+            />
+          )}
         </div>
 
         {/* Global Footer */}
         <footer className="mt-auto pt-8 border-t border-white/10 flex flex-wrap gap-6 items-center justify-between text-xs text-[#cfc2d7]/60">
-          <div className="flex gap-6">
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-[#cfc2d7]/40">Network Health</p>
-              <p className="font-bold text-[#00dce5]">Optimal</p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-[#cfc2d7]/40">Latency</p>
-              <p className="font-bold text-white">142ms</p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-[#cfc2d7]/40">Nodes Online</p>
-              <p className="font-bold text-white">4,129</p>
-            </div>
-          </div>
-          
           <div className="flex items-center gap-2">
-            <span>Securely Connected via 12.0.4.82</span>
             <div className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e]"></div>
+            <span>Connected to Stellar Testnet</span>
           </div>
         </footer>
       </main>
@@ -267,6 +278,7 @@ export default function App() {
         txHash={transfers.depositStatus.txHash}
         commitment={transfers.depositStatus.commitment}
         error={transfers.depositStatus.error}
+        assetSymbol={transfers.depositStatus.assetSymbol}
         onClose={() => transfers.setDepositStatus({ status: 'idle' })}
       />
 
@@ -278,6 +290,9 @@ export default function App() {
         txHash={transfers.transferStatus.txHash}
         nullifier={transfers.transferStatus.nullifier}
         error={transfers.transferStatus.error}
+        assetSymbol={transfers.transferStatus.assetSymbol}
+        toAssetSymbol={transfers.transferStatus.toAssetSymbol}
+        toAmount={transfers.transferStatus.toAmount}
         onClose={() => transfers.setTransferStatus({ status: 'idle', type: 'transfer' })}
       />
 

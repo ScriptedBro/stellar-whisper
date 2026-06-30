@@ -1963,6 +1963,7 @@ dependencies = [
  "ed25519-dalek",
  "soroban-poseidon",
  "soroban-sdk",
+ "verifier",
 ]
 
 [[package]]

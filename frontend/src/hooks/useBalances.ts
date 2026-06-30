@@ -1,7 +1,7 @@
+import { RPC_URL } from '../config/constants';
 import { useState, useEffect, useCallback } from 'react';
 import { rpc, Contract, Account, TransactionBuilder, Networks, nativeToScVal, scValToNative } from '@stellar/stellar-sdk';
 
-export const XLM_CONTRACT_ID = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
 
 export function useBalances(userAddress: string, tokenContractId: string, _network: string = 'testnet') {
   const [selectedAsset, setSelectedAsset] = useState<'USDC' | 'XLM'>('USDC');
@@ -18,22 +18,39 @@ export function useBalances(userAddress: string, tokenContractId: string, _netwo
       setPublicXlmBalance(0);
       return;
     }
+
+    // 1. Fetch XLM Balance from Horizon (canonical and robust source for native XLM)
     try {
-      const server = new rpc.Server("https://soroban-testnet.stellar.org");
+      const response = await fetch(`https://horizon-testnet.stellar.org/accounts/${address}`);
+      if (response.ok) {
+        const data = await response.json();
+        const nativeBalanceEntry = data.balances.find((b: any) => b.asset_type === 'native');
+        if (nativeBalanceEntry) {
+          setPublicXlmBalance(Number(nativeBalanceEntry.balance));
+        }
+      } else {
+        throw new Error(`Horizon returned status ${response.status}`);
+      }
+    } catch (err) {
+      console.error("Error fetching XLM balance from Horizon:", err);
+    }
+
+    // 2. Fetch USDC Balance via Soroban RPC
+    try {
+      const server = new rpc.Server(RPC_URL);
       
       let sequence = "0";
       try {
         const accountDetails = await server.getAccount(address);
         sequence = accountDetails.sequenceNumber();
       } catch (e) {
+        // If the account doesn't exist on Soroban yet, its USDC balance is 0
         setPublicUsdcBalance(0);
-        setPublicXlmBalance(0);
         return;
       }
 
       const account = new Account(address, sequence);
       
-      // 1. Fetch USDC Balance
       try {
         const usdcContract = new Contract(tokenContractId);
         const txUsdc = new TransactionBuilder(account, {
@@ -54,44 +71,8 @@ export function useBalances(userAddress: string, tokenContractId: string, _netwo
       } catch (err) {
         console.error("Error fetching USDC balance:", err);
       }
-
-      // 2. Fetch XLM Balance from Horizon (canonical and robust source for native XLM)
-      try {
-        const response = await fetch(`https://horizon-testnet.stellar.org/accounts/${address}`);
-        if (response.ok) {
-          const data = await response.json();
-          const nativeBalanceEntry = data.balances.find((b: any) => b.asset_type === 'native');
-          if (nativeBalanceEntry) {
-            setPublicXlmBalance(Number(nativeBalanceEntry.balance));
-          }
-        } else {
-          throw new Error(`Horizon returned status ${response.status}`);
-        }
-      } catch (err) {
-        console.error("Error fetching XLM balance from Horizon, falling back to Soroban simulation:", err);
-        try {
-          const xlmContract = new Contract(XLM_CONTRACT_ID);
-          const txXlm = new TransactionBuilder(account, {
-            fee: "100",
-            networkPassphrase: Networks.TESTNET
-          })
-          .addOperation(
-            xlmContract.call("balance", nativeToScVal(address, { type: "address" }))
-          )
-          .setTimeout(30)
-          .build();
-
-          const simXlm = await server.simulateTransaction(txXlm);
-          if (rpc.Api.isSimulationSuccess(simXlm) && simXlm.result) {
-            const balBigInt = scValToNative(simXlm.result.retval);
-            setPublicXlmBalance(Number(balBigInt) / 10000000);
-          }
-        } catch (fallbackErr) {
-          console.error("Soroban XLM balance fallback also failed:", fallbackErr);
-        }
-      }
     } catch (e) {
-      console.error("Error fetching balances from testnet:", e);
+      console.error("Error fetching Soroban balances from testnet:", e);
     }
   }, [tokenContractId]);
 

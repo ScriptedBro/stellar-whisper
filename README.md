@@ -13,6 +13,7 @@ Stellar Whisper is a **compliance-first, fully shielded wallet and remittance ap
 ## 🌟 Key Features
 
 *   **Multi-Asset Shielded Pools**: Simultaneously supports both **USDC** and **XLM** shielded pools within a single contract. Users can deposit, transfer, and withdraw both assets privately, with independent balances, histories, and dashboard metrics.
+*   **Hybrid Public-Private Liquidity Pools (Path 1)**: Allows LPs to publicly supply liquidity to the AMM (USDC & wrapped XLM) to earn fee yields, while enabling traders to execute private swaps against the public reserves using ZK spend proofs.
 *   **In-Browser Zero-Knowledge Proving**: Witness generation, multi-scalar multiplication (MSM), and polynomial commitment compilation are computed client-side in the browser via Aztec's `@aztec/bb.js` WebAssembly engine, ensuring private keys never leave the user's device.
 *   **Double-Spend Nullifier Guard**: Prevents double-spending of shielded notes by recording deterministic, cryptographically blinded nullifiers on-chain.
 *   **Cryptographic Value Conservation**: The circuit enforces that the sum of input note values equals the sum of output note values ($\text{input} = \text{withdraw} + \text{recipient} + \text{change}$), so the contract can verify no funds were created or destroyed without learning any amounts.
@@ -107,6 +108,13 @@ To prevent cross-asset correlation and double-spend proof replay attacks (e.g., 
     *   **Pool TVL**: Total Value Locked computed on-chain for the specific asset.
     *   **24h Volume**: Combined deposits and withdrawals over the last 24 hours.
     *   **Anonymity Set**: Count of unique commitments/notes generated under the asset's contract.
+
+### 🌊 Hybrid Liquidity Pools & Shielded Swaps (Path 1)
+Stellar Whisper implements a unique **Hybrid AMM** model that links standard public liquidity pools directly to private shielded transactions:
+
+*   **Public Liquidity Provision (LP)**: Anyone can publicly deposit liquidity into the constant-product AMM pool by calling the contract's `add_liquidity` and `remove_liquidity` functions. LPs receive standard LP shares representing their stake in the pool and earn a `0.3%` fee on all swaps, with zero ZK complexity for LPs.
+*   **Shielded Swaps**: Traders can swap assets privately against the public pool reserves. Using a ZK proof, a trader spends a private note of Asset A (e.g. USDC). The contract verifies the proof, executes a constant-product swap against the public reserves, and mints a new private note of Asset B (e.g. XLM) for the trader's ZK public key.
+*   **Decoupled Privacy**: The total pool reserves, TVL, and LP deposits are fully public, ensuring deep liquidity. However, the trader's identity, input note value, and output note value remain completely shielded under zero-knowledge encryption, solving the liquidity constraints of pure private pools.
 
 ---
 

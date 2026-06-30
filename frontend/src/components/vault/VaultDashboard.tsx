@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ActivityLog as ActivityLogType, PrivateNote } from '../../types';
+import { XLM_CONTRACT_ID } from '../../config/constants';
 import { PoolStats } from './PoolStats';
 import { ActivityLog } from './ActivityLog';
 import { useNotification } from '../../context/NotificationContext';
@@ -49,7 +50,7 @@ interface VaultDashboardProps {
   isSyncing: boolean;
   syncProgress: string;
   syncNotesFromChain: () => Promise<void>;
-  setActiveTab: (tab: 'vault' | 'pool' | 'send' | 'compliance') => void;
+  setActiveTab: (tab: 'vault' | 'pool' | 'send' | 'compliance' | 'liquidity' | 'swap') => void;
   logs: ActivityLogType[];
   notes: PrivateNote[];
   importNotes: (importedNotes: PrivateNote[]) => void;
@@ -72,7 +73,7 @@ export function VaultDashboard({
   const { showToast, showAlert } = useNotification();
   const activeNotes = notes.filter(n => {
     if (n.spent) return false;
-    const isXlm = n.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+    const isXlm = n.assetAddress === XLM_CONTRACT_ID;
     return selectedAsset === 'XLM' ? isXlm : !isXlm;
   });
 
@@ -235,7 +236,10 @@ export function VaultDashboard({
       <div className="col-span-12 lg:col-span-5 space-y-6">
         <h3 className="font-bold text-lg text-white mb-2">Ecosystem Apps</h3>
         <div className="grid grid-cols-1 gap-4">
-          <div className="glass-panel p-5 rounded-lg glass-inner-stroke group cursor-pointer hover:bg-white/8 transition-all overflow-hidden relative">
+          <div 
+            onClick={() => setActiveTab('liquidity')}
+            className="glass-panel p-5 rounded-lg glass-inner-stroke group cursor-pointer hover:bg-white/8 transition-all overflow-hidden relative"
+          >
             <div className="absolute -right-4 -top-4 w-24 h-24 bg-[#00f4fe]/10 blur-2xl group-hover:bg-[#00f4fe]/20 transition-all"></div>
             <div className="flex items-start justify-between mb-3">
               <div className="w-10 h-10 rounded bg-[#00f4fe]/20 flex items-center justify-center text-[#00f4fe]">
@@ -247,7 +251,10 @@ export function VaultDashboard({
             <p className="text-xs text-[#cfc2d7] leading-relaxed">Provide liquidity while maintaining total wallet anonymity.</p>
           </div>
 
-          <div className="glass-panel p-5 rounded-lg glass-inner-stroke group cursor-pointer hover:bg-white/8 transition-all overflow-hidden relative">
+          <div 
+            onClick={() => setActiveTab('compliance')}
+            className="glass-panel p-5 rounded-lg glass-inner-stroke group cursor-pointer hover:bg-white/8 transition-all overflow-hidden relative"
+          >
             <div className="absolute -right-4 -top-4 w-24 h-24 bg-[#8a2be2]/10 blur-2xl group-hover:bg-[#8a2be2]/20 transition-all"></div>
             <div className="flex items-start justify-between mb-3">
               <div className="w-10 h-10 rounded bg-[#8a2be2]/20 flex items-center justify-center text-[#8a2be2]">
@@ -258,7 +265,10 @@ export function VaultDashboard({
             <p className="text-xs text-[#cfc2d7] leading-relaxed">Generate zero-knowledge proofs for third-party verification.</p>
           </div>
 
-          <div className="glass-panel p-5 rounded-lg glass-inner-stroke group cursor-pointer hover:bg-white/8 transition-all overflow-hidden relative">
+          <div 
+            onClick={() => setActiveTab('swap')}
+            className="glass-panel p-5 rounded-lg glass-inner-stroke group cursor-pointer hover:bg-white/8 transition-all overflow-hidden relative"
+          >
             <div className="absolute -right-4 -top-4 w-24 h-24 bg-[#fface8]/10 blur-2xl group-hover:bg-[#fface8]/20 transition-all"></div>
             <div className="flex items-start justify-between mb-3">
               <div className="w-10 h-10 rounded bg-[#fface8]/20 flex items-center justify-center text-[#fface8]">

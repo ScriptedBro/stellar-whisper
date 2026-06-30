@@ -65,10 +65,10 @@ export function CompliancePanel({
                   value={complianceStandard}
                   onChange={(e) => setComplianceStandard(e.target.value)}
                   disabled={isProving}
-                  className="w-full glass-input px-4 py-3 text-sm text-white rounded bg-surface-container"
+                  className="w-full glass-input px-4 py-3 text-sm text-white rounded bg-[#0b0e14] border border-white/10 focus:border-[#fface8]"
                 >
-                  <option value="aml-sanctions">AML & Sanctions Compliance Set (OFAC Non-membership)</option>
-                  <option value="tax-audit">Tax & Capital Gains Audit (Anonymized Ledger)</option>
+                  <option value="aml-sanctions" className="bg-[#0b0e14] text-white">AML & Sanctions Compliance Set (OFAC Non-membership)</option>
+                  <option value="tax-audit" className="bg-[#0b0e14] text-white">Tax & Capital Gains Audit (Anonymized Ledger)</option>
                 </select>
               </div>
 

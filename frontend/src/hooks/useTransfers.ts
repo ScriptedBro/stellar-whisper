@@ -2,7 +2,7 @@ import type React from 'react';
 import { useState } from 'react';
 import { nativeToScVal, scValToNative, xdr, Contract, Account, TransactionBuilder, Networks, rpc } from '@stellar/stellar-sdk';
 import type { Config, ActivityLog, PrivateNote } from '../types';
-import { SANCTIONED_ADDRESSES } from '../config/constants';
+import { SANCTIONED_ADDRESSES, RPC_URL } from '../config/constants';
 import { useNotification } from '../context/NotificationContext';
 import { 
   derivePubkey, 
@@ -31,7 +31,7 @@ const whisperCircuit = {
   bytecode: cleanBytecode
 };async function checkIsSanctionedOnChain(address: string, contractId: string, sourceAddress: string): Promise<boolean> {
   try {
-    const server = new rpc.Server("https://soroban-testnet.stellar.org");
+    const server = new rpc.Server(RPC_URL);
     const simAccount = new Account(sourceAddress, "0");
     const contract = new Contract(contractId);
     const tx = new TransactionBuilder(simAccount, {
@@ -53,7 +53,7 @@ const whisperCircuit = {
 }
 
 async function checkMerkleRootOnChain(rootBytes: Uint8Array, contractId: string, sourceAddress: string): Promise<boolean> {
-  const server = new rpc.Server("https://soroban-testnet.stellar.org");
+  const server = new rpc.Server(RPC_URL);
   const simAccount = new Account(sourceAddress, "0");
   const contract = new Contract(contractId);
   const tx = new TransactionBuilder(simAccount, {
@@ -142,14 +142,18 @@ export function useTransfers({
     txHash?: string;
     commitment?: string;
     error?: string;
+    assetSymbol?: string;
   }>({ status: 'idle' });
   const [transferStatus, setTransferStatus] = useState<{
     status: 'idle' | 'success' | 'failed';
-    type: 'transfer' | 'withdraw';
+    type: 'transfer' | 'withdraw' | 'swap';
     amount?: number;
     txHash?: string;
     nullifier?: string;
     error?: string;
+    assetSymbol?: string;
+    toAssetSymbol?: string;
+    toAmount?: number;
   }>({ status: 'idle', type: 'transfer' });
 
   const handleShieldDeposit = async (e: React.FormEvent) => {
@@ -167,7 +171,12 @@ export function useTransfers({
       return;
     }
 
-    const activeTokenContractId = selectedAsset === 'USDC' ? config.tokenContractId : 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+    if (!zkPrivateKey) {
+      showAlert("No ZK Key", "Cannot shield deposit without a ZK private key. Generate one in the Compliance panel first.", "warning");
+      return;
+    }
+
+    const activeTokenContractId = selectedAsset === 'USDC' ? config.tokenContractId : config.xlmContractId;
     const assetIdBytes = await getAssetId(activeTokenContractId);
 
     let commitmentBytes: Uint8Array;
@@ -210,12 +219,13 @@ export function useTransfers({
       ? new Uint8Array(encryptedPayloadHex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16))) 
       : new Uint8Array(0);
     const encryptedNoteScVal = nativeToScVal(encryptedNoteBytes, { type: "bytes" });
+    const circuitVersionScVal = nativeToScVal(1, { type: "u32" });
 
     setActiveTab('pool');
 
     executeSorobanCall(
       "deposit",
-      [fromScVal, tokenScVal, commitmentScVal, amountScVal, encryptedNoteScVal],
+      [fromScVal, tokenScVal, commitmentScVal, amountScVal, encryptedNoteScVal, circuitVersionScVal],
       async (txHash, txResult) => {
         try {
           if (txResult && txResult.returnValue) {
@@ -262,7 +272,7 @@ export function useTransfers({
             amount: amt,
             timestamp: 'Just now',
             status: 'success',
-            txHash: txHash || 'ca80a46c313795342d08ad5f0e293315cdba9f74fb848fe4e42d8e1340953488',
+            txHash: txHash || '',
             asset: selectedAsset
           },
           ...prev
@@ -272,14 +282,16 @@ export function useTransfers({
           status: 'success',
           amount: amt,
           txHash: txHash || '',
-          commitment: bytesToHex(commitmentBytes)
+          commitment: bytesToHex(commitmentBytes),
+          assetSymbol: selectedAsset
         });
       },
       (err) => {
         setDepositStatus({
           status: 'failed',
           amount: amt,
-          error: err
+          error: err,
+          assetSymbol: selectedAsset
         });
         setLogs(prev => [
           {
@@ -331,16 +343,18 @@ export function useTransfers({
     setProvingLogs([]);
     setProvingProgress(5);
 
-    addProvingLog("Initializing Aztec UltraHonk Prover engine...");
-    addProvingLog("Fetching commitments list from ledger for path construction...");
+    try {
+      addProvingLog("Initializing Aztec UltraHonk Prover engine...");
+      addProvingLog("Fetching commitments list from ledger for path construction...");
 
-    const activeTokenContractId = selectedAsset === 'USDC' ? config.tokenContractId : 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+    const activeTokenContractId = selectedAsset === 'USDC' ? config.tokenContractId : config.xlmContractId;
     const assetIdBytes = await getAssetId(activeTokenContractId);
 
     const unspentNotes = notes
-      .filter(n => !n.spent && (selectedAsset === 'USDC' ? n.assetAddress !== 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' : n.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC'))
+      .filter(n => !n.spent && (selectedAsset === 'USDC' ? n.assetAddress !== config.xlmContractId : n.assetAddress === config.xlmContractId))
       .sort((a, b) => a.amount - b.amount);
-    let noteToSpend = unspentNotes.find(n => n.amount >= amt);
+    const amtRounded = Math.round(amt * 10000000) / 10000000;
+    let noteToSpend = unspentNotes.find(n => Math.round(n.amount * 10000000) / 10000000 >= amtRounded);
     if (!noteToSpend) {
       noteToSpend = unspentNotes.find(n => n.commitment === selectedNoteCommitment);
     }
@@ -352,24 +366,18 @@ export function useTransfers({
     }
 
     const noteAmount = noteToSpend.amount;
-    if (amt > noteAmount) {
+    if (amtRounded > Math.round(noteAmount * 10000000) / 10000000 + 0.001) {
       showAlert("Note Too Small", `No single private note can cover ${amt} ${selectedAsset}. Deposit a larger note or send a smaller amount.`, "warning");
       setIsProving(false);
       return;
     }
 
     const targetNoteCommitment = noteToSpend.commitment;
-    console.log("=== useTransfers noteToSpend ===", noteToSpend);
-    console.log("=== useTransfers allCommitments ===", allCommitments);
-    console.log("=== targetNoteCommitment ===", targetNoteCommitment);
     addProvingLog(`Selected spent note commitment: ${targetNoteCommitment}`);
 
     let leafIndex = allCommitments.indexOf(targetNoteCommitment);
     if (leafIndex === -1) {
-      console.warn(`=== Commitment not found! ===`);
-      console.warn(`- target: ${targetNoteCommitment}`);
-      console.warn(`- in allCommitments:`, allCommitments);
-      showAlert("Synchronizer Error", `CRITICAL ERROR: Note commitment ${targetNoteCommitment} is not found in the on-chain commitments. The note store and chain events scan are desynced.`, "error");
+      showAlert("Synchronizer Error", `Note commitment ${targetNoteCommitment} is not found in the on-chain commitments. The note store and chain events scan are desynced.`, "error");
       setIsProving(false);
       return;
     }
@@ -378,10 +386,6 @@ export function useTransfers({
     const { merklePath } = await constructMerklePath(commitmentsUint8, leafIndex);
 
     addProvingLog(`Reconstructing Merkle path at leaf index: ${leafIndex}...`);
-    for (let i = 0; i < 16; i++) {
-      const siblingHex = Array.from(merklePath[i]).map(b => b.toString(16).padStart(2, '0')).join('');
-      addProvingLog(`  Level ${i} Sibling: ${siblingHex.slice(0, 16)}...`);
-    }
 
     setProvingProgress(20);
 
@@ -524,32 +528,8 @@ export function useTransfers({
     const outputCommitment1Hex = bytesToHex(outputCommitment1Bytes);
     const outputCommitment2Hex = bytesToHex(outputCommitment2Bytes);
 
-    // Witness Object build
-    const witness = {
-      secret_key: secretKeyHex,
-      nullifier_nonce: nullifierNonceHex,
-      merkle_path: merklePathHex,
-      merkle_index: leafIndex,
-      recipient_pubkey: recipientPubkeyHex,
-      recipient_amount: recipientAmountHex,
-      recipient_nonce: recipientNonceHexWitness,
-      change_pubkey: changePubkeyHex,
-      change_amount: changeAmountHex,
-      change_nonce: changeNonceHexWitness,
-      merkle_root: merkleRootHex,
-      nullifier_hash: bytesToHex(nullifierHashBytes),
-      input_amount: inputAmountHex,
-      public_withdraw_amount: withdrawAmountHex,
-      public_recipient_hash: publicRecipientHashHex,
-      output_commitment_1: outputCommitment1Hex,
-      output_commitment_2: outputCommitment2Hex,
-      asset_id: bytesToHex(assetIdBytes)
-    };
-    console.log("Stellar Whisper ZK Prover Witness Constructed:", witness);
     addProvingLog("ZK Witness wired to UltraHonk circuit constraints successfully!");
 
-    addProvingLog("Aztec Backend: executing BN254 multi-scalar multiplication (MSM) in browser...");
-    addProvingLog("Aztec Backend: compiling polynomial commitments...");
     setProvingProgress(55);
 
     // Helpers to decode inputs to format expected by NoirJS
@@ -659,10 +639,24 @@ export function useTransfers({
     );
 
     const tokenScVal = nativeToScVal(activeTokenContractId, { type: "address" });
+    const relayerScVal = xdr.ScVal.scvVoid();
+    const relayerFeeScVal = nativeToScVal(0n, { type: "i128" });
+    const circuitVersionScVal = nativeToScVal(1, { type: "u32" });
 
     executeSorobanCall(
       "transfer_or_withdraw",
-      [tokenScVal, proofScVal, publicInputsScVal, recipientScVal, amountScVal, encryptedNotesScVec, newCommitmentsScVec],
+      [
+        tokenScVal,
+        proofScVal,
+        publicInputsScVal,
+        recipientScVal,
+        amountScVal,
+        relayerScVal,
+        relayerFeeScVal,
+        circuitVersionScVal,
+        encryptedNotesScVec,
+        newCommitmentsScVec
+      ],
       async (txHash) => {
         const newCommitmentHexes = newCommitmentsList.map(bytes => bytesToHex(bytes));
         setAllCommitments(prev => [...prev, ...newCommitmentHexes]);
@@ -707,7 +701,7 @@ export function useTransfers({
             recipient: isPrivateNoteTransfer ? 'Shielded Vault' : recipientAddress.slice(0, 6) + '...' + recipientAddress.slice(-4),
             timestamp: 'Just now',
             status: 'success',
-            txHash: txHash || '0x99a3c9b2e8d47b5ef0c8ad5f0e293315cdba9f74fb848fe4e42d8e1340953488',
+            txHash: txHash || '',
             asset: selectedAsset
           },
           ...prev
@@ -750,6 +744,11 @@ export function useTransfers({
       },
       true
     );
+    } catch (err: any) {
+      console.error("Unhandled error in shielded transfer/withdraw:", err);
+      showAlert("Transfer Error", err.message || String(err), "error");
+      setIsProving(false);
+    }
   };
 
   const handleGenerateCompliance = async (e: React.FormEvent) => {
@@ -759,36 +758,36 @@ export function useTransfers({
 
     setIsProving(true);
     setProvingLogs([]);
-    setProvingProgress(0);
+    setProvingProgress(10);
+
+    const addLog = (msg: string) => {
+      setProvingLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
+    };
 
     const actualViewingKey = zkPrivateKey ? await deriveViewingKey(zkPrivateKey) : activeKey;
 
     let targetNotes = [...notes];
     let isUserAddressSanctioned = false;
 
-    // Check if the user address is sanctioned on-chain
     if (userAddress) {
-      const simulationSource = userAddress || config.adminAddress;
+      setProvingProgress(25);
+      addLog("Checking sanctions status on-chain...");
+      const simulationSource = userAddress;
       isUserAddressSanctioned = SANCTIONED_ADDRESSES.includes(userAddress) || await checkIsSanctionedOnChain(userAddress, config.whisperContractId, simulationSource);
     }
 
-    // If only viewingKey was provided, we perform a blockchain scan to find notes decryptable by it
     if (viewingKey && !zkPrivateKey) {
-      setProvingLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] Initializing connection to Soroban RPC...`]);
+      setProvingProgress(40);
+      addLog("Scanning Soroban events for decryptable notes...");
       try {
-        const server = new rpc.Server("https://soroban-testnet.stellar.org");
+    const server = new rpc.Server(RPC_URL);
         const latestLedger = await server.getLatestLedger();
         const endLedger = latestLedger.sequence;
         const startLedger = Math.max(1, endLedger - 10000);
         
         const response = await server.getEvents({
           startLedger,
-          filters: [
-            {
-              contractIds: [config.whisperContractId],
-              type: "contract"
-            }
-          ]
+          filters: [{ contractIds: [config.whisperContractId], type: "contract" }]
         });
 
         const events = response.events || [];
@@ -821,8 +820,8 @@ export function useTransfers({
                 }
               }
             }
-          } catch (err) {
-            // ignore malformed events
+          } catch (_err) {
+            // skip malformed events
           }
         }
         targetNotes = decryptedList as any;
@@ -830,6 +829,9 @@ export function useTransfers({
         console.warn("On-chain compliance scan failed, falling back to local state:", err);
       }
     }
+
+    setProvingProgress(75);
+    addLog("Generating cryptographic attestation...");
 
     const isClean = !isUserAddressSanctioned;
     const status = isClean ? 'VERIFIED (PASS)' : 'FAILED (SANCTIONED SOURCE DETECTED)';
@@ -840,52 +842,35 @@ export function useTransfers({
     const attestationHash = await sha256(attestationPayload);
     const attestationProof = await sha256(`${actualViewingKey}|${attestationHash}`);
 
-    const stages = [
-      { stage: "Decrypting note commitments using Viewing Key...", percent: 25 },
-      { stage: "Reconstructing Merkle Membership Paths...", percent: 50 },
-      { stage: "Verifying origin compliance against on-chain sanctions list...", percent: 75 },
-      { stage: "Generating cryptographic Compliance Proof...", percent: 100 }
-    ];
+    const latestRootHex = localStorage.getItem(`whisper_latest_root_${userAddress}`) || '0x0000000000000000000000000000000000000000000000000000000000000000';
+    const reportIdBytes = new Uint8Array(4);
+    globalThis.crypto.getRandomValues(reportIdBytes);
+    const reportId = 'ZKP-REP-' + Array.from(reportIdBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    setComplianceReport({
+      id: reportId,
+      timestamp: new Date().toUTCString(),
+      standard: complianceStandard === 'aml-sanctions' ? 'AML & Sanctions Compliance Set' : 'Tax & Capital Gains Audit',
+      merkleRoot: latestRootHex.startsWith('0x') ? latestRootHex : '0x' + latestRootHex,
+      status,
+      attestationHash: '0x' + attestationHash,
+      attestationProof: '0x' + attestationProof,
+      verifiedCommitments,
+      sanctionedSourcesCount: isUserAddressSanctioned ? 1 : 0
+    });
 
-    let currentIdx = 0;
-    const interval = setInterval(() => {
-      if (currentIdx < stages.length) {
-        const item = stages[currentIdx];
-        setProvingProgress(item.percent);
-        setProvingLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${item.stage}`]);
-        currentIdx++;
-      } else {
-        clearInterval(interval);
-        setIsProving(false);
-        setProvingProgress(0);
-        
-        setLogs(prev => [
-          {
-            id: Date.now().toString(),
-            type: 'compliance',
-            timestamp: 'Just now',
-            status: isClean ? 'verified' : 'failed'
-          },
-          ...prev
-        ]);
-        
-        const latestRootHex = localStorage.getItem(`whisper_latest_root_${userAddress}`) || '0x0000000000000000000000000000000000000000000000000000000000000000';
-        const reportId = 'ZKP-REP-' + Math.floor(100000 + Math.random() * 900000);
-        setComplianceReport({
-          id: reportId,
-          timestamp: new Date().toUTCString(),
-          standard: complianceStandard === 'aml-sanctions' ? 'AML & Sanctions Compliance Set' : 'Tax & Capital Gains Audit',
-          merkleRoot: latestRootHex.startsWith('0x') ? latestRootHex : '0x' + latestRootHex,
-          status,
-          attestationHash: '0x' + attestationHash,
-          attestationProof: '0x' + attestationProof,
-          verifiedCommitments,
-          sanctionedSourcesCount: isUserAddressSanctioned ? 1 : 0
-        });
+    setLogs(prev => [
+      {
+        id: Date.now().toString(),
+        type: 'compliance',
+        timestamp: 'Just now',
+        status: isClean ? 'verified' : 'failed'
+      },
+      ...prev
+    ]);
 
-        setViewingKey('');
-      }
-    }, 900);
+    setViewingKey('');
+    setIsProving(false);
+    setProvingProgress(100);
   };
 
   return {

@@ -185,3 +185,37 @@ Stellar Whisper implements a dual-layer compliance model to solve the traditiona
     *   A viewing key ($vk_{view}$) is shared selectively with tax authorities or compliance officers.
     *   The viewing key decrypts the user's encrypted note logs stored in the event history without giving control over the funds.
     *   The compliance panel generates a cryptographic attestation proving the origin and destination paths are clean without exposing other pool activities.
+
+---
+
+## 7. Hybrid Public-Private Liquidity Pools (Path 1)
+
+Stellar Whisper implements a hybrid design where standard public automated market maker (AMM) reserves are integrated with private shielded transactions to enable privacy-preserving asset swaps.
+
+### Architecture Topology
+1. **Public LP Layer**: Liquidity providers add and withdraw assets (USDC and native wrapped XLM) to the contract reserves publicly. The reserves and total issued LP shares are stored in public contract instance storage (`ReserveA`, `ReserveB`, `TotalLpShares`) and LP share records are managed on-chain (`LpShares(Address)`).
+2. **Private Swap Layer**: Traders execute swaps using an Aztec UltraHonk spend proof. The input note of Asset A is spent privately, while the contract routes the swap against the public reserves to mint a new private note of Asset B for the trader.
+
+```mermaid
+graph TD;
+    Alice[Trader (Private)] -- spends private note A --> Contract[Whisper Contract];
+    Contract -- updates reserves publicly --> AMM[Public AMM Reserves];
+    AMM -- returns swap output --> Contract;
+    Contract -- mints private note B --> Bob[Trader/Recipient (Private)];
+```
+
+### Constant Product Math
+The contract executes a constant product AMM swap ($x \cdot y = k$) with a `0.3%` fee protocol:
+$$\Delta y = \frac{y \cdot (\Delta x \cdot 997)}{(x \cdot 1000) + (\Delta x \cdot 997)}$$
+Where:
+- $\Delta x$ is the swap amount in (Asset A/USDC).
+- $\Delta y$ is the swap amount out (Asset B/XLM).
+- $x$ and $y$ are the pool reserves of Asset A and Asset B.
+
+### Input/Output Commitment Coupling
+During a shielded swap, the circuit ensures that value conservation holds, and the contract derivations are tied as follows:
+- **Nullifier Verification**: The input note commitment of Asset A is spent and marked spent via its nullifier hash.
+- **On-chain Derivation**: The contract executes the AMM math on-chain to determine the exact output amount ($\Delta y$) based on the public reserves. It then derives the output commitment for Asset B using the modulo-reduced Poseidon hash over the trader's ZK public key and the calculated output amount:
+  $$\text{commitment\_b} = \text{Poseidon}(pk_{zk}, \text{Poseidon}(\Delta y, nonce, asset\_id\_b))$$
+- **Root Update**: The newly derived output commitment is automatically inserted as a leaf into the Merkle tree.
+

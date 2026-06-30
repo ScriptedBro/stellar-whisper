@@ -43,6 +43,7 @@ export function ActivityLog({ logs }: ActivityLogProps) {
                   log.type === 'transfer' ? (
                     isCredit ? 'bg-green-500/10 text-green-400' : 'bg-[#00f4fe]/10 text-[#00f4fe]'
                   ) : 
+                  log.type === 'swap' ? 'bg-[#fface8]/10 text-[#fface8]' :
                   'bg-[#fface8]/10 text-[#fface8]'
                 }`}>
                   <span className="material-symbols-outlined">
@@ -51,6 +52,7 @@ export function ActivityLog({ logs }: ActivityLogProps) {
                        isCredit ? 'arrow_downward' : 
                        isWithdrawal ? 'publish' : 'arrow_upward'
                      ) : 
+                     log.type === 'swap' ? 'swap_horiz' :
                      'verified'}
                   </span>
                 </div>
@@ -62,10 +64,14 @@ export function ActivityLog({ logs }: ActivityLogProps) {
                       isCredit ? "Shielded Receive" : "Shielded Send"
                     )}
                     {log.type === 'compliance' && "ZK Compliance Report"}
+                    {log.type === 'swap' && "Shielded Swap"}
                   </p>
                   <p className="text-[10px] text-[#cfc2d7]">
                     {log.type === 'transfer' && log.recipient && (
                       isCredit ? `From ${log.recipient.includes('Received') ? 'Shielded Sender' : log.recipient} • ` : `To ${log.recipient} • `
+                    )}
+                    {log.type === 'swap' && log.details && (
+                      `${log.details} • `
                     )}
                     {log.timestamp}
                   </p>
@@ -77,7 +83,8 @@ export function ActivityLog({ logs }: ActivityLogProps) {
                   {log.amount && (
                     <p className={`font-bold text-sm ${
                       log.status === 'failed' ? 'text-red-400' : 
-                      isCredit ? 'text-green-400' : 'text-white'
+                      isCredit ? 'text-green-400' : 
+                      log.type === 'swap' ? 'text-[#fface8]' : 'text-white'
                     }`}>
                       {isCredit ? '+' : '-'}{log.amount.toFixed(2)} {log.asset || 'USDC'}
                     </p>

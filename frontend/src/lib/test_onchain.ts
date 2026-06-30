@@ -12,6 +12,7 @@ import { UltraHonkBackend } from '@aztec/bb.js';
 import { Noir } from '@noir-lang/noir_js';
 import circuitJson from '../config/whisper.json';
 import deployedJson from '../config/deployed.json';
+import { RPC_URL } from '../config/constants';
 import { 
   derivePubkey,
   deriveCommitment, 
@@ -25,10 +26,13 @@ import { constructMerklePath } from './merkle';
 import crypto from 'crypto';
 
 // Setup RPC server
-const server = new rpc.Server("https://soroban-testnet.stellar.org");
+const server = new rpc.Server(RPC_URL);
 
-// Load alice (funded admin account)
-const aliceSecret = "SCQK3YU3VYRPVQ3NEKL4CSAAQYWCLDGPAPTJ2M562O3TJZKTUFBW6RVP";
+// Load alice from environment or CLI-provided secret (DO NOT hardcode)
+const aliceSecret = process.env.ALICE_SECRET || "";
+if (!aliceSecret) {
+  throw new Error("ALICE_SECRET environment variable must be set");
+}
 const aliceKeypair = Keypair.fromSecret(aliceSecret);
 const aliceAddress = aliceKeypair.publicKey();
 
@@ -351,7 +355,11 @@ async function main() {
     xdr.ScVal.scvBytes(Buffer.from(assetIdBytes))            // asset_id public input
   ]);
   
+  const tokenScVal = nativeToScVal(tokenContractId, { type: "address" });
   const amountScVal = nativeToScVal(amount, { type: "i128" });
+  const relayerScVal = xdr.ScVal.scvVoid();
+  const relayerFeeScVal = nativeToScVal(0n, { type: "i128" });
+  const circuitVersionScVal = nativeToScVal(1, { type: "u32" });
   const encryptedNotesScVec = xdr.ScVal.scvVec([]);
   const newCommitmentsScVec = xdr.ScVal.scvVec([]);
   
@@ -361,10 +369,14 @@ async function main() {
   })
   .addOperation(whisperContract.call(
     "transfer_or_withdraw",
+    tokenScVal,
     proofScVal,
     publicInputsScVal,
     recipientScVal,
     amountScVal,
+    relayerScVal,
+    relayerFeeScVal,
+    circuitVersionScVal,
     encryptedNotesScVec,
     newCommitmentsScVec
   ))
