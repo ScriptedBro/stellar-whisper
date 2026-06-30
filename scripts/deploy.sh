@@ -94,6 +94,28 @@ stellar contract invoke \
 
 echo "✅ Whisper Contract and AMM Pool initialized successfully!"
 
+# 7c. Seed the AMM pool with initial liquidity (if SEED_POOL=true)
+if [ "${SEED_POOL:-true}" = "true" ]; then
+  echo "Step 3g: Seeding AMM Pool with initial liquidity..."
+  SEED_USDC=${SEED_USDC:-30000000000}
+  SEED_XLM=${SEED_XLM:-30000000000}
+  SEED_DEADLINE=$(date -d "+1 hour" +%s)
+  
+  stellar contract invoke \
+    --id $WHISPER_ID \
+    --source $ADMIN_KEY \
+    --network $NETWORK \
+    -- \
+    add_liquidity \
+    --from $ADMIN_ADDRESS \
+    --amount_a $SEED_USDC \
+    --amount_b $SEED_XLM \
+    --min_shares 0 \
+    --deadline $SEED_DEADLINE
+  
+  echo "✅ AMM Pool seeded with $(($SEED_USDC / 10000000)) USDC and $(($SEED_XLM / 10000000)) XLM!"
+fi
+
 # 8. Write config to frontend
 echo "Step 4: Writing deployment details to frontend configuration..."
 mkdir -p frontend/src/config
