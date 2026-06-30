@@ -345,6 +345,14 @@ app.post('/api/relay', async (req, res) => {
     return res.status(400).json({ error: "Missing 'func' parameter (host function XDR)." });
   }
 
+  const relayApiKey = process.env.RELAY_API_KEY;
+  if (relayApiKey) {
+    const requestKey = req.headers['x-api-key'];
+    if (!requestKey || requestKey !== relayApiKey) {
+      return res.status(401).json({ error: "Unauthorized: Invalid or missing API key. Provide x-api-key header." });
+    }
+  }
+
   const activeApiKey = process.env.OPENZEPPELIN_CHANNELS_API_KEY || process.env.CHANNELS_API_KEY;
   if (!activeApiKey) {
     return res.status(400).json({

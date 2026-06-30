@@ -142,6 +142,7 @@ export function useTransfers({
     txHash?: string;
     commitment?: string;
     error?: string;
+    assetSymbol?: string;
   }>({ status: 'idle' });
   const [transferStatus, setTransferStatus] = useState<{
     status: 'idle' | 'success' | 'failed';
@@ -167,6 +168,11 @@ export function useTransfers({
     const amt = Number(depositAmount);
     if (amt > publicBalance) {
       showAlert("Insufficient Balance", "Insufficient public balance.", "warning");
+      return;
+    }
+
+    if (!zkPrivateKey) {
+      showAlert("No ZK Key", "Cannot shield deposit without a ZK private key. Generate one in the Compliance panel first.", "warning");
       return;
     }
 
@@ -276,14 +282,16 @@ export function useTransfers({
           status: 'success',
           amount: amt,
           txHash: txHash || '',
-          commitment: bytesToHex(commitmentBytes)
+          commitment: bytesToHex(commitmentBytes),
+          assetSymbol: selectedAsset
         });
       },
       (err) => {
         setDepositStatus({
           status: 'failed',
           amount: amt,
-          error: err
+          error: err,
+          assetSymbol: selectedAsset
         });
         setLogs(prev => [
           {
@@ -335,8 +343,9 @@ export function useTransfers({
     setProvingLogs([]);
     setProvingProgress(5);
 
-    addProvingLog("Initializing Aztec UltraHonk Prover engine...");
-    addProvingLog("Fetching commitments list from ledger for path construction...");
+    try {
+      addProvingLog("Initializing Aztec UltraHonk Prover engine...");
+      addProvingLog("Fetching commitments list from ledger for path construction...");
 
     const activeTokenContractId = selectedAsset === 'USDC' ? config.tokenContractId : config.xlmContractId;
     const assetIdBytes = await getAssetId(activeTokenContractId);
@@ -344,7 +353,8 @@ export function useTransfers({
     const unspentNotes = notes
       .filter(n => !n.spent && (selectedAsset === 'USDC' ? n.assetAddress !== config.xlmContractId : n.assetAddress === config.xlmContractId))
       .sort((a, b) => a.amount - b.amount);
-    let noteToSpend = unspentNotes.find(n => n.amount >= amt);
+    const amtRounded = Math.round(amt * 10000000) / 10000000;
+    let noteToSpend = unspentNotes.find(n => Math.round(n.amount * 10000000) / 10000000 >= amtRounded);
     if (!noteToSpend) {
       noteToSpend = unspentNotes.find(n => n.commitment === selectedNoteCommitment);
     }
@@ -356,7 +366,7 @@ export function useTransfers({
     }
 
     const noteAmount = noteToSpend.amount;
-    if (amt > noteAmount) {
+    if (amtRounded > Math.round(noteAmount * 10000000) / 10000000 + 0.001) {
       showAlert("Note Too Small", `No single private note can cover ${amt} ${selectedAsset}. Deposit a larger note or send a smaller amount.`, "warning");
       setIsProving(false);
       return;
@@ -734,6 +744,11 @@ export function useTransfers({
       },
       true
     );
+    } catch (err: any) {
+      console.error("Unhandled error in shielded transfer/withdraw:", err);
+      showAlert("Transfer Error", err.message || String(err), "error");
+      setIsProving(false);
+    }
   };
 
   const handleGenerateCompliance = async (e: React.FormEvent) => {
@@ -828,7 +843,9 @@ export function useTransfers({
     const attestationProof = await sha256(`${actualViewingKey}|${attestationHash}`);
 
     const latestRootHex = localStorage.getItem(`whisper_latest_root_${userAddress}`) || '0x0000000000000000000000000000000000000000000000000000000000000000';
-    const reportId = 'ZKP-REP-' + Math.floor(100000 + Math.random() * 900000);
+    const reportIdBytes = new Uint8Array(4);
+    globalThis.crypto.getRandomValues(reportIdBytes);
+    const reportId = 'ZKP-REP-' + Array.from(reportIdBytes).map(b => b.toString(16).padStart(2, '0')).join('');
     setComplianceReport({
       id: reportId,
       timestamp: new Date().toUTCString(),

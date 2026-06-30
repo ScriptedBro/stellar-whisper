@@ -351,7 +351,8 @@ export function useNotes(
               if (decrypted) {
                 const { nullifier_nonce, amount: decryptedAmount, assetAddress: decryptedAssetAddress } = decrypted;
                 
-                const noteAmount = decryptedAmount !== undefined ? decryptedAmount : (Number(BigInt(rawAmount)) / 10000000);
+                const rawHuman = Number(BigInt(rawAmount)) / 10000000;
+                const noteAmount = decryptedAmount !== undefined ? Math.round(decryptedAmount * 10000000) / 10000000 : Math.round(rawHuman * 10000000) / 10000000;
                 const finalAssetAddress = decryptedAssetAddress || eventTokenAddress;
                 
                 decryptedNotesMap.set(commitmentHex, {

@@ -4,6 +4,7 @@ extern crate alloc;
 extern crate std;
 pub mod ultrahonk;
 use soroban_sdk::{contract, contractimpl, contracterror, Bytes, BytesN, Env, Vec};
+use crate::ultrahonk::types::PAIRING_POINTS_SIZE;
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -46,36 +47,31 @@ impl Contract {
             return Err(ContractError::ProofVerificationFailed);
         }
 
-        // Concatenate public inputs and pack the first 240 bytes into 240 Fr scalars
-        let mut public_inputs_bytes = Bytes::new(&env);
-        
-        // Unpack the first 240 bytes of public_inputs byte-wise into 32-byte field elements
-        // 8 * 32 = 256 bytes total in public_inputs, but only the first 240 bytes are user-provided.
-        let mut byte_count = 0;
-        for i in 0..8 {
-            let chunk = public_inputs.get(i).unwrap().to_array();
-            for &byte in chunk.iter() {
-                if byte_count < 240 {
-                    // Convert byte into a 32-byte big-endian Fr (field element)
-                    let mut scalar = [0u8; 32];
-                    scalar[31] = byte;
-                    public_inputs_bytes.extend_from_slice(&scalar);
-                    byte_count += 1;
-                } else {
-                    break;
-                }
-            }
-        }
-
-        // Load the verification key (VK)
+        // Load the verification key (VK) first to derive the correct public-input packing limit
         let vk_bytes_all = include_bytes!("../../../circuits/whisper/target/vk");
-        let sliced_vk = &vk_bytes_all[..1760];
-        let vk_bytes = Bytes::from_slice(&env, sliced_vk);
+        let vk_bytes = Bytes::from_slice(&env, vk_bytes_all);
 
         let verifier = match crate::ultrahonk::verifier::UltraHonkVerifier::new(&env, &vk_bytes) {
             Ok(v) => v,
             Err(_) => return Err(ContractError::ProofVerificationFailed),
         };
+
+        // Concatenate public inputs byte-wise into 32-byte Fr scalars.
+        // The VK's public_inputs_size includes the 16-element pairing-point object;
+        // user-provided public inputs are the remainder.
+        let max_bytes = (verifier.get_vk().public_inputs_size - PAIRING_POINTS_SIZE as u64) as usize;
+        let mut public_inputs_bytes = Bytes::new(&env);
+        let mut byte_count = 0;
+        for i in 0..8 {
+            let chunk = public_inputs.get(i).unwrap().to_array();
+            for &byte in chunk.iter() {
+                if byte_count >= max_bytes { break; }
+                let mut scalar = [0u8; 32];
+                scalar[31] = byte;
+                public_inputs_bytes.extend_from_slice(&scalar);
+                byte_count += 1;
+            }
+        }
 
         match verifier.verify(&env, &proof, &public_inputs_bytes) {
             Ok(_) => Ok(()),
@@ -107,6 +103,10 @@ mod test {
             public_inputs.push_back(BytesN::from_array(&env, &chunk));
         }
 
+        let vk_bytes_all = include_bytes!("../../../circuits/whisper/target/vk");
+        let vk = crate::ultrahonk::utils::load_vk_from_bytes(&env, &Bytes::from_slice(&env, vk_bytes_all)).unwrap();
+        let max_bytes = (vk.public_inputs_size - PAIRING_POINTS_SIZE as u64) as usize;
+
         // Real proof must verify successfully!
         let expected_bytes_all = include_bytes!("../../../circuits/whisper/target/public_inputs");
         let expected_bytes = Bytes::from_slice(&env, expected_bytes_all);
@@ -116,14 +116,11 @@ mod test {
         for i in 0..8 {
             let chunk = public_inputs.get(i).unwrap().to_array();
             for &byte in chunk.iter() {
-                if byte_count < 240 {
-                    let mut scalar = [0u8; 32];
-                    scalar[31] = byte;
-                    public_inputs_bytes.extend_from_slice(&scalar);
-                    byte_count += 1;
-                } else {
-                    break;
-                }
+                if byte_count >= max_bytes { break; }
+                let mut scalar = [0u8; 32];
+                scalar[31] = byte;
+                public_inputs_bytes.extend_from_slice(&scalar);
+                byte_count += 1;
             }
         }
         
@@ -196,8 +193,7 @@ mod test {
         std::println!("VK length: {}", vk_bytes_all.len());
         std::println!("Proof length: {}", proof_bytes_all.len());
 
-        let sliced_vk = &vk_bytes_all[..1760];
-        let res_vk = crate::ultrahonk::utils::load_vk_from_bytes(&env, &Bytes::from_slice(&env, sliced_vk));
+        let res_vk = crate::ultrahonk::utils::load_vk_from_bytes(&env, &Bytes::from_slice(&env, vk_bytes_all));
         match res_vk {
             Ok(vk) => {
                 std::println!("VK loaded successfully!");

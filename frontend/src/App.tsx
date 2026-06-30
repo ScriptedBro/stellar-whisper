@@ -183,6 +183,7 @@ export default function App() {
               selectedNoteCommitment={notes.selectedNoteCommitment}
               setSelectedNoteCommitment={notes.setSelectedNoteCommitment}
               isConnected={wallet.isConnected}
+              isSyncing={notes.isSyncing}
               connectWallet={wallet.connectWallet}
               handleShieldedTransfer={transfers.handleShieldedTransfer}
               selectedAsset={balances.selectedAsset}
@@ -277,6 +278,7 @@ export default function App() {
         txHash={transfers.depositStatus.txHash}
         commitment={transfers.depositStatus.commitment}
         error={transfers.depositStatus.error}
+        assetSymbol={transfers.depositStatus.assetSymbol}
         onClose={() => transfers.setDepositStatus({ status: 'idle' })}
       />
 

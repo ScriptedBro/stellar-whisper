@@ -21,6 +21,7 @@ interface SendPanelProps {
   selectedNoteCommitment: string;
   setSelectedNoteCommitment: (commitment: string) => void;
   isConnected: boolean;
+  isSyncing?: boolean;
   connectWallet: () => Promise<void>;
   handleShieldedTransfer: (e: React.FormEvent) => Promise<void>;
   selectedAsset: 'USDC' | 'XLM';
@@ -47,6 +48,7 @@ export function SendPanel({
   selectedNoteCommitment,
   setSelectedNoteCommitment,
   isConnected,
+  isSyncing,
   connectWallet,
   handleShieldedTransfer,
   selectedAsset,
@@ -113,6 +115,7 @@ export function SendPanel({
                   setSelectedNoteCommitment={setSelectedNoteCommitment}
                   transferAmount={transferAmount}
                   selectedAsset={selectedAsset}
+                  isSyncing={isSyncing}
                 />
               )}
 

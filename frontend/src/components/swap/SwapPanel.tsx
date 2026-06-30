@@ -227,8 +227,9 @@ export function SwapPanel({
       return;
     }
 
-    const amt = parseFloat(fromAmount);
-    if (amt > activeShieldedBalance) {
+    const amt = Math.round(parseFloat(fromAmount) * 10000000) / 10000000;
+    const roundedBalance = Math.round(activeShieldedBalance * 10000000) / 10000000;
+    if (amt > roundedBalance) {
       showToast(`Insufficient Shielded Balance: You do not have enough shielded ${fromAsset} to complete this private swap.`, "error");
       return;
     }

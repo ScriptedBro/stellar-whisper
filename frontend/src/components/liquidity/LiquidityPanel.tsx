@@ -48,7 +48,8 @@ export function LiquidityPanel({
   const [userLpBalance, setUserLpBalance] = useState(0);
   const [totalLpShares, setTotalLpShares] = useState(100000);
 
-  const xlmPrice = 0.25; // 1 XLM = $0.25
+  // TODO: Replace with live XLM price feed
+  const xlmPrice = 0.25;
   const poolTvl = (xlmReserve * xlmPrice) + usdcReserve;
   
   const userSharePercent = totalLpShares > 0 ? (userLpBalance / totalLpShares) * 100 : 0;
@@ -60,8 +61,7 @@ export function LiquidityPanel({
     if (!whisperContractId) return;
     try {
       const server = new rpc.Server(RPC_URL);
-      const queryAddress = userAddress || "GBOFACBLOCKLIST1111111111111111111111111111111111111111";
-      const simAccount = new Account(queryAddress, "0");
+      const simAccount = new Account(userAddress, "0");
       const contract = new Contract(whisperContractId);
 
       // 1. Fetch reserves
@@ -296,6 +296,7 @@ export function LiquidityPanel({
               </div>
               <div className="bg-white/5 p-4 rounded-xl border border-white/5">
                 <span className="text-[10px] text-[#cfc2d7] uppercase tracking-wider block mb-1">Pool APR</span>
+                {/* TODO: Replace with dynamic APR computation from on-chain volume */}
                 <span className="text-xl font-bold text-[#00ff87] font-mono">18.5% APR</span>
               </div>
             </div>
@@ -311,10 +312,11 @@ export function LiquidityPanel({
               </div>
               <div className="flex justify-between items-center text-[#cfc2d7]">
                 <span>Trading Fee:</span>
-                <span className="text-white font-bold">0.30%</span>
+                <span className="text-white font-bold">0.35%</span>
               </div>
               <div className="flex justify-between items-center text-[#cfc2d7]">
                 <span>24h Swap Volume:</span>
+                {/* TODO: Replace with dynamic 24h volume from on-chain event aggregation */}
                 <span className="text-[#00f4fe] font-bold">$12,450 USD</span>
               </div>
             </div>

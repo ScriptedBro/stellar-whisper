@@ -7,6 +7,7 @@ interface NoteSelectorProps {
   setSelectedNoteCommitment: (commitment: string) => void;
   transferAmount: string;
   selectedAsset?: 'USDC' | 'XLM';
+  isSyncing?: boolean;
 }
 
 export function NoteSelector({
@@ -14,7 +15,8 @@ export function NoteSelector({
   selectedNoteCommitment,
   setSelectedNoteCommitment,
   transferAmount,
-  selectedAsset = 'USDC'
+  selectedAsset = 'USDC',
+  isSyncing = false
 }: NoteSelectorProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const unspentNotes = useMemo(
@@ -25,7 +27,7 @@ export function NoteSelector({
   const hasRequestedAmount = Number.isFinite(requestedAmount) && requestedAmount > 0;
   const selectedNote = unspentNotes.find(note => note.commitment === selectedNoteCommitment);
   const bestNote = hasRequestedAmount
-    ? unspentNotes.find(note => note.amount >= requestedAmount)
+    ? unspentNotes.find(note => note.amount + 0.001 >= requestedAmount)
     : unspentNotes[0];
   const sourceNote = bestNote || selectedNote || unspentNotes[0];
   const visibleBalance = sourceNote?.amount ?? 0;
@@ -47,6 +49,28 @@ export function NoteSelector({
   ]);
 
   if (unspentNotes.length === 0) {
+    if (isSyncing) {
+      return (
+        <div className="p-4 rounded-xl bg-blue-950/15 border border-blue-500/20 text-xs text-[#7fcfff] flex items-center gap-3">
+          <span className="material-symbols-outlined animate-spin">sync</span>
+          <div>
+            <p className="font-bold">Syncing Private Notes</p>
+            <p className="mt-1 text-[11px] text-[#7fcfff]/80">Scanning chain for your notes. Please wait a moment...</p>
+          </div>
+        </div>
+      );
+    }
+    if (notes.length > 0) {
+      return (
+        <div className="p-4 rounded-xl bg-amber-950/15 border border-amber-500/20 text-xs text-[#ffb4ab] flex items-center gap-3">
+          <span className="material-symbols-outlined">info</span>
+          <div>
+            <p className="font-bold">Notes Being Verified</p>
+            <p className="mt-1 text-[11px] text-[#ffb4ab]/80">All notes have been spent. Syncing on-chain state to confirm change notes...</p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="p-4 rounded-xl bg-red-950/15 border border-red-500/20 text-xs text-[#ffb4ab] flex items-center gap-3">
         <span className="material-symbols-outlined">warning</span>

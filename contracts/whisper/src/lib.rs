@@ -102,6 +102,27 @@ const TREE_DEPTH: u32 = 16;
 // Maximum allowed amount per operation (1 billion tokens) to prevent overflow panics
 const MAX_AMOUNT: i128 = 1_000_000_000_0000000;
 
+// RAII reentrancy guard — automatically releases lock on Drop
+struct ReentrancyGuard {
+    env: Env,
+}
+
+impl ReentrancyGuard {
+    fn new(env: &Env) -> Result<Self, ContractError> {
+        if env.storage().instance().has(&DataKey::ReentrancyLock) {
+            return Err(ContractError::ReentrancyGuardTriggered);
+        }
+        env.storage().instance().set(&DataKey::ReentrancyLock, &true);
+        Ok(Self { env: env.clone() })
+    }
+}
+
+impl Drop for ReentrancyGuard {
+    fn drop(&mut self) {
+        self.env.storage().instance().remove(&DataKey::ReentrancyLock);
+    }
+}
+
 // Pre-computed zero hashes for the Merkle tree using recursive Poseidon:
 // Z0 = [0u8; 32] (empty leaf)
 // Z1 = Poseidon(Z0, Z0)
@@ -263,14 +284,9 @@ impl Contract {
     ) -> Result<i128, ContractError> {
         from.require_auth();
 
-        let lock_key = DataKey::ReentrancyLock;
-        if env.storage().instance().has(&lock_key) {
-            return Err(ContractError::ReentrancyGuardTriggered);
-        }
-        env.storage().instance().set(&lock_key, &true);
+        let _guard = ReentrancyGuard::new(&env)?;
 
         if env.ledger().timestamp() > deadline {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::DeadlineExpired);
         }
 
@@ -280,7 +296,6 @@ impl Contract {
         let mut reserve_b: i128 = env.storage().instance().get(&DataKey::ReserveB).unwrap_or(0);
 
         if amount_a <= 0 || amount_a > MAX_AMOUNT || amount_b <= 0 || amount_b > MAX_AMOUNT {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::InvalidAmount);
         }
 
@@ -303,7 +318,6 @@ impl Contract {
         };
 
         if shares < min_shares {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::SlippageExceeded);
         }
 
@@ -324,7 +338,6 @@ impl Contract {
             (from, amount_a, amount_b, shares),
         );
 
-        env.storage().instance().remove(&lock_key);
         Ok(shares)
     }
 
@@ -339,14 +352,9 @@ impl Contract {
     ) -> Result<(i128, i128), ContractError> {
         from.require_auth();
 
-        let lock_key = DataKey::ReentrancyLock;
-        if env.storage().instance().has(&lock_key) {
-            return Err(ContractError::ReentrancyGuardTriggered);
-        }
-        env.storage().instance().set(&lock_key, &true);
+        let _guard = ReentrancyGuard::new(&env)?;
 
         if env.ledger().timestamp() > deadline {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::DeadlineExpired);
         }
 
@@ -357,14 +365,12 @@ impl Contract {
         let total_shares: i128 = env.storage().instance().get(&DataKey::TotalLpShares).unwrap_or(0);
 
         if shares <= 0 || total_shares <= 0 {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::InvalidAmount);
         }
 
         let lp_shares_key = DataKey::LpShares(from.clone());
         let current_shares: i128 = env.storage().persistent().get(&lp_shares_key).unwrap_or(0);
         if current_shares < shares {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::InvalidAmount);
         }
 
@@ -373,12 +379,10 @@ impl Contract {
         let amount_b = (shares * reserve_b) / total_shares;
 
         if amount_a <= 0 || amount_a > MAX_AMOUNT || amount_b <= 0 || amount_b > MAX_AMOUNT {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::InvalidAmount);
         }
 
         if amount_a < min_amount_a || amount_b < min_amount_b {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::SlippageExceeded);
         }
 
@@ -404,7 +408,6 @@ impl Contract {
             (from, amount_a, amount_b, shares),
         );
 
-        env.storage().instance().remove(&lock_key);
         Ok((amount_a, amount_b))
     }
 
@@ -441,34 +444,25 @@ impl Contract {
     ) -> Result<BytesN<32>, ContractError> {
         from.require_auth();
 
-        let lock_key = DataKey::ReentrancyLock;
-        if env.storage().instance().has(&lock_key) {
-            return Err(ContractError::ReentrancyGuardTriggered);
-        }
-        env.storage().instance().set(&lock_key, &true);
+        let _guard = ReentrancyGuard::new(&env)?;
 
         if circuit_version != 1 {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::Unauthorized);
         }
 
         if !env.storage().instance().has(&DataKey::Admin) {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::NotInitialized);
         }
         // Enforce compliance: check if depositor is sanctioned
         if Self::is_sanctioned(env.clone(), from.clone()) {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::SanctionedAddress);
         }
         if amount <= 0 || amount > MAX_AMOUNT {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::InvalidAmount);
         }
 
         // Check for duplicate commitment BEFORE transferring tokens
         if env.storage().persistent().has(&DataKey::Commitments(commitment.clone())) {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::CommitmentAlreadyExists);
         }
 
@@ -489,7 +483,6 @@ impl Contract {
             }
         );
 
-        env.storage().instance().remove(&lock_key);
         Ok(new_root)
     }
 
@@ -507,14 +500,9 @@ impl Contract {
         encrypted_notes: Vec<Bytes>,
         new_commitments: Vec<BytesN<32>>,
     ) -> Result<(), ContractError> {
-        let lock_key = DataKey::ReentrancyLock;
-        if env.storage().instance().has(&lock_key) {
-            return Err(ContractError::ReentrancyGuardTriggered);
-        }
-        env.storage().instance().set(&lock_key, &true);
+        let _guard = ReentrancyGuard::new(&env)?;
 
         if !env.storage().instance().has(&DataKey::Admin) {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::NotInitialized);
         }
 
@@ -524,7 +512,6 @@ impl Contract {
         } else if circuit_version == 1 {
             env.storage().instance().get(&DataKey::Verifier).ok_or(ContractError::NotInitialized)?
         } else {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::Unauthorized);
         };
         
@@ -532,31 +519,25 @@ impl Contract {
 
         if is_public_withdraw {
             if amount <= 0 || amount > MAX_AMOUNT {
-                env.storage().instance().remove(&lock_key);
                 return Err(ContractError::InvalidAmount);
             }
             if relayer_fee < 0 {
-                env.storage().instance().remove(&lock_key);
                 return Err(ContractError::InvalidAmount);
             }
             if relayer_fee > 0 {
                 if amount < relayer_fee {
-                    env.storage().instance().remove(&lock_key);
                     return Err(ContractError::InvalidAmount);
                 }
                 if relayer.is_none() {
-                    env.storage().instance().remove(&lock_key);
                     return Err(ContractError::Unauthorized);
                 }
             }
             // Enforce compliance: check if recipient is sanctioned
             if Self::is_sanctioned(env.clone(), recipient.clone()) {
-                env.storage().instance().remove(&lock_key);
                 return Err(ContractError::SanctionedAddress);
             }
         } else {
             if amount != 0 || relayer_fee != 0 {
-                env.storage().instance().remove(&lock_key);
                 return Err(ContractError::InvalidAmount);
             }
         }
@@ -571,7 +552,6 @@ impl Contract {
         // public_inputs[6]: output_commitment_2
         // public_inputs[7]: asset_id
         if public_inputs.len() < 8 {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::ProofVerificationFailed);
         }
 
@@ -589,26 +569,22 @@ impl Contract {
         let token_hash = env.crypto().sha256(&token_xdr);
         let expected_asset_id = BytesN::from_array(&env, &token_hash.to_array());
         if asset_id_input != expected_asset_id {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::ProofVerificationFailed);
         }
 
         // 1. Verify that the Merkle root is valid (i.e. has been created by a deposit/transfer)
         if !Self::is_root_valid(env.clone(), merkle_root.clone()) {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::InvalidMerkleRoot);
         }
 
         // 2. Verify that the nullifier hasn't been spent already to prevent double spending
         if env.storage().persistent().has(&DataKey::Nullifiers(nullifier_hash.clone())) {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::NullifierAlreadySpent);
         }
 
         // 3. Verify that the public input for withdraw amount matches amount
         let expected_withdraw_input = val_to_bytes32(&env, amount);
         if public_withdraw_amount_input != expected_withdraw_input {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::InvalidAmount);
         }
 
@@ -620,12 +596,10 @@ impl Contract {
             let recipient_hash_raw = env.crypto().sha256(&recipient_xdr);
             let expected_recipient_hash = BytesN::from_array(&env, &recipient_hash_raw.to_array());
             if public_recipient_hash_input != expected_recipient_hash {
-                env.storage().instance().remove(&lock_key);
                 return Err(ContractError::ProofVerificationFailed);
             }
 
             if output_commitment_1_input != zero_bytes || public_recipient_hash_input == zero_bytes {
-                env.storage().instance().remove(&lock_key);
                 return Err(ContractError::ProofVerificationFailed);
             }
             
@@ -636,19 +610,16 @@ impl Contract {
             }
 
             if new_commitments.len() != expected_commitments.len() {
-                env.storage().instance().remove(&lock_key);
                 return Err(ContractError::ProofVerificationFailed);
             }
             for i in 0..new_commitments.len() {
                 if new_commitments.get(i).unwrap() != expected_commitments.get(i).unwrap() {
-                    env.storage().instance().remove(&lock_key);
                     return Err(ContractError::ProofVerificationFailed);
                 }
             }
         } else {
             // Internal shielded transfer
             if public_withdraw_amount_input != zero_bytes || public_recipient_hash_input != zero_bytes {
-                env.storage().instance().remove(&lock_key);
                 return Err(ContractError::ProofVerificationFailed);
             }
 
@@ -663,12 +634,10 @@ impl Contract {
 
             // Match new_commitments to expected_commitments
             if new_commitments.len() != expected_commitments.len() {
-                env.storage().instance().remove(&lock_key);
                 return Err(ContractError::ProofVerificationFailed);
             }
             for i in 0..new_commitments.len() {
                 if new_commitments.get(i).unwrap() != expected_commitments.get(i).unwrap() {
-                    env.storage().instance().remove(&lock_key);
                     return Err(ContractError::ProofVerificationFailed);
                 }
             }
@@ -676,7 +645,6 @@ impl Contract {
 
         // Verify that the number of encrypted notes matches the number of new commitments
         if encrypted_notes.len() != new_commitments.len() {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::ProofVerificationFailed);
         }
 
@@ -689,7 +657,6 @@ impl Contract {
         match verifier_call {
             Ok(Ok(_)) => {}
             _ => {
-                env.storage().instance().remove(&lock_key);
                 return Err(ContractError::ProofVerificationFailed);
             }
         }
@@ -746,7 +713,6 @@ impl Contract {
             );
         }
 
-        env.storage().instance().remove(&lock_key);
         Ok(())
     }
 
@@ -765,24 +731,17 @@ impl Contract {
         deadline: u64,
         encrypted_note: Bytes,
     ) -> Result<(i128, BytesN<32>), ContractError> {
-        let lock_key = DataKey::ReentrancyLock;
-        if env.storage().instance().has(&lock_key) {
-            return Err(ContractError::ReentrancyGuardTriggered);
-        }
-        env.storage().instance().set(&lock_key, &true);
+        let _guard = ReentrancyGuard::new(&env)?;
 
         if env.ledger().timestamp() > deadline {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::DeadlineExpired);
         }
 
         if !env.storage().instance().has(&DataKey::Admin) {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::NotInitialized);
         }
 
         if amount_in <= 0 || amount_in > MAX_AMOUNT {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::InvalidAmount);
         }
 
@@ -796,7 +755,6 @@ impl Contract {
         let is_out_b = token_out == token_b;
 
         if !((is_in_a && is_out_b) || (is_in_b && is_out_a)) {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::Unauthorized);
         }
 
@@ -806,13 +764,11 @@ impl Contract {
         } else if circuit_version == 1 {
             env.storage().instance().get(&DataKey::Verifier).ok_or(ContractError::NotInitialized)?
         } else {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::Unauthorized);
         };
 
         // 1. ZK Proof verification (spending the input note)
         if public_inputs.len() < 8 {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::ProofVerificationFailed);
         }
 
@@ -830,26 +786,22 @@ impl Contract {
         let token_hash = env.crypto().sha256(&token_xdr);
         let expected_asset_id = BytesN::from_array(&env, &token_hash.to_array());
         if asset_id_input != expected_asset_id {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::ProofVerificationFailed);
         }
 
         // Verify Merkle root is valid
         if !Self::is_root_valid(env.clone(), merkle_root.clone()) {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::InvalidMerkleRoot);
         }
 
         // Verify nullifier hasn't been spent
         if env.storage().persistent().has(&DataKey::Nullifiers(nullifier_hash.clone())) {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::NullifierAlreadySpent);
         }
 
         // Verify amount matches public withdraw input
         let expected_withdraw_input = val_to_bytes32(&env, amount_in);
         if public_withdraw_amount_input != expected_withdraw_input {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::InvalidAmount);
         }
 
@@ -858,14 +810,12 @@ impl Contract {
         let recipient_hash = env.crypto().sha256(&recipient_xdr);
         let expected_recipient_hash = BytesN::from_array(&env, &recipient_hash.to_array());
         if public_recipient_hash_input != expected_recipient_hash {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::ProofVerificationFailed);
         }
 
         // Enforce that output commitments from ZK proof are zero (entire amount withdrawn to AMM)
         let zero_bytes = BytesN::from_array(&env, &[0u8; 32]);
         if output_commitment_1_input != zero_bytes || output_commitment_2_input != zero_bytes {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::ProofVerificationFailed);
         }
 
@@ -878,7 +828,6 @@ impl Contract {
         match verifier_call {
             Ok(Ok(_)) => {}
             _ => {
-                env.storage().instance().remove(&lock_key);
                 return Err(ContractError::ProofVerificationFailed);
             }
         }
@@ -894,7 +843,6 @@ impl Contract {
         };
 
         if reserve_in <= 0 || reserve_out <= 0 {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::InvalidAmount);
         }
 
@@ -907,7 +855,6 @@ impl Contract {
         let amount_out = numerator / denominator;
 
         if amount_out <= 0 || amount_out < min_amount_out {
-            env.storage().instance().remove(&lock_key);
             return Err(ContractError::SlippageExceeded);
         }
 
@@ -964,7 +911,6 @@ impl Contract {
             }
         );
 
-        env.storage().instance().remove(&lock_key);
         Ok((amount_out, new_root))
     }
 
