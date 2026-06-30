@@ -2,7 +2,7 @@
 
 use super::*;
 use soroban_sdk::{
-    contract, contractimpl, testutils::{Address as _}, Address, Bytes, BytesN, Env, Vec
+    contract, contractimpl, testutils::{Address as _, Ledger as _}, Address, Bytes, BytesN, Env, Vec
 };
 
 #[contract]
@@ -600,9 +600,10 @@ fn test_cross_layer_fixtures() {
     let computed_nullifier = derived_nullifier.to_array();
 
     // 5. Test Merkle Root Calculation for single leaf inserted at index 0
+    let zero_hashes = compute_zero_hashes(&env);
     let mut filled_subtrees = Vec::new(&env);
     for level in 0..TREE_DEPTH {
-        filled_subtrees.push_back(get_zero_hash(&env, level));
+        filled_subtrees.push_back(zero_hashes.get(level).unwrap());
     }
     
     let mut current_level_hash = BytesN::from_array(&env, &computed_commitment);
@@ -612,7 +613,7 @@ fn test_cross_layer_fixtures() {
             let left = filled_subtrees.get(level).unwrap();
             current_level_hash = hash_poseidon_2(&env, left, current_level_hash);
         } else {
-            let right = get_zero_hash(&env, level);
+            let right = zero_hashes.get(level).unwrap();
             current_level_hash = hash_poseidon_2(&env, current_level_hash, right);
         }
         index /= 2;
@@ -911,4 +912,70 @@ fn test_public_liquidity_provision() {
     assert_eq!(final_res_b, 10000);
     assert_eq!(whisper_client.get_lp_shares(&lp), 5000);
     assert_eq!(whisper_client.get_total_lp_shares(), 5000);
+}
+
+#[test]
+fn test_reduce_bn254_modulus_edge_cases() {
+    let modulus: [u8; 32] = [
+        0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29,
+        0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
+        0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91,
+        0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x01
+    ];
+
+    // Case 1: Value strictly less than modulus should remain unchanged
+    let mut small_val = modulus;
+    small_val[31] = 0x00; // modulus - 1
+    assert_eq!(reduce_bn254_modulus(small_val), small_val);
+
+    // Case 2: Value exactly equal to modulus should reduce to all zeros
+    assert_eq!(reduce_bn254_modulus(modulus), [0u8; 32]);
+
+    // Case 3: Value strictly greater than modulus (e.g. modulus + 5) should reduce to 5
+    let mut large_val = modulus;
+    large_val[31] = 0x06; // modulus + 5
+    let mut expected_reduced = [0u8; 32];
+    expected_reduced[31] = 0x05;
+    assert_eq!(reduce_bn254_modulus(large_val), expected_reduced);
+}
+
+#[test]
+fn test_whisper_with_real_verifier() {
+    let env = Env::default();
+    env.ledger().set_protocol_version(26);
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    // Register real verifier contract
+    let verifier_addr = env.register(verifier::Contract, ());
+
+    // Register mock token
+    let token_addr = env.register_stellar_asset_contract_v2(admin.clone()).address();
+    let token_admin = soroban_sdk::token::StellarAssetClient::new(&env, &token_addr);
+
+    // Register whisper contract
+    let whisper_client = ContractClient::new(&env, &env.register(Contract, ()));
+
+    whisper_client.initialize(&admin, &token_addr, &verifier_addr);
+
+    // Mint tokens to user
+    token_admin.mint(&user, &1000i128);
+
+    // Load pre-generated proof and public inputs
+    let proof_bytes_all = include_bytes!("../../../circuits/whisper/target/proof");
+    let proof = Bytes::from_slice(&env, proof_bytes_all);
+
+    let raw_inputs_all = include_bytes!("../../../circuits/whisper/target/public_inputs_raw");
+    let mut public_inputs = Vec::new(&env);
+    for i in 0..8 {
+        let mut chunk = [0u8; 32];
+        chunk.copy_from_slice(&raw_inputs_all[i * 32..(i + 1) * 32]);
+        public_inputs.push_back(BytesN::from_array(&env, &chunk));
+    }
+
+    // Call the verifier directly to confirm the proof is valid
+    let verifier_client = verifier::ContractClient::new(&env, &verifier_addr);
+    verifier_client.verify_proof(&proof, &public_inputs);
 }

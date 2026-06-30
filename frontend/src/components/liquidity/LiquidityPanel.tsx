@@ -134,11 +134,10 @@ export function LiquidityPanel({
         setTotalLpShares(totalShares || 1);
         setUserLpBalance(userShares);
       } else {
-        // Fallback to reasonable mockup numbers for UI presentation if reserves are empty
-        setUsdcReserve(80194);
-        setXlmReserve(325480);
-        setTotalLpShares(10000);
-        setUserLpBalance(userAddress ? userShares : 12.5);
+        setUsdcReserve(0);
+        setXlmReserve(0);
+        setTotalLpShares(0);
+        setUserLpBalance(0);
       }
     } catch (e) {
       console.error("Error fetching pool data:", e);

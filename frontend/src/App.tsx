@@ -25,34 +25,15 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'vault' | 'pool' | 'send' | 'compliance' | 'liquidity' | 'swap'>('vault');
   const { showToast } = useNotification();
 
-  const [config] = useState<Config>(() => {
-    // Try to load deployed config synchronously if available
-    try {
-      // Note: Vite doesn't support dynamic require, but we can still use import.meta.env
-      return {
-        network: import.meta.env.VITE_NETWORK || DEFAULT_CONFIG.network,
-        adminAddress: import.meta.env.VITE_ADMIN_ADDRESS || DEFAULT_CONFIG.adminAddress,
-        tokenContractId: import.meta.env.VITE_TOKEN_CONTRACT_ID || DEFAULT_CONFIG.tokenContractId,
-        tokenBContractId: import.meta.env.VITE_TOKEN_B_CONTRACT_ID || DEFAULT_CONFIG.tokenBContractId,
-        verifierContractId: import.meta.env.VITE_VERIFIER_CONTRACT_ID || DEFAULT_CONFIG.verifierContractId,
-        whisperContractId: import.meta.env.VITE_WHISPER_CONTRACT_ID || DEFAULT_CONFIG.whisperContractId
-      };
-    } catch {
-      return DEFAULT_CONFIG;
-    }
-  });
-
-  useEffect(() => {
-    // Dynamic import to merge locally deployed config
-    import('./config/deployed.json')
-      .then((data) => {
-        // Since we're removing setConfig, we'll just log this instead
-        console.log("Deployed config available, but config is immutable in real mode:", data.default);
-      })
-      .catch(() => {
-        console.log("No deployed.json config override found, using environment/default settings.");
-      });
-  }, []);
+  const [config] = useState<Config>(() => ({
+    network: DEFAULT_CONFIG.network,
+    adminAddress: DEFAULT_CONFIG.adminAddress,
+    tokenContractId: DEFAULT_CONFIG.tokenContractId,
+    tokenBContractId: DEFAULT_CONFIG.tokenBContractId,
+    xlmContractId: DEFAULT_CONFIG.xlmContractId,
+    verifierContractId: DEFAULT_CONFIG.verifierContractId,
+    whisperContractId: DEFAULT_CONFIG.whisperContractId
+  }));
 
   // Initialize modular hooks
   const wallet = useWallet();
@@ -274,24 +255,9 @@ export default function App() {
 
         {/* Global Footer */}
         <footer className="mt-auto pt-8 border-t border-white/10 flex flex-wrap gap-6 items-center justify-between text-xs text-[#cfc2d7]/60">
-          <div className="flex gap-6">
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-[#cfc2d7]/40">Network Health</p>
-              <p className="font-bold text-[#00dce5]">Optimal</p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-[#cfc2d7]/40">Latency</p>
-              <p className="font-bold text-white">142ms</p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-[#cfc2d7]/40">Nodes Online</p>
-              <p className="font-bold text-white">4,129</p>
-            </div>
-          </div>
-          
           <div className="flex items-center gap-2">
-            <span>Securely Connected via 12.0.4.82</span>
             <div className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e]"></div>
+            <span>Connected to Stellar Testnet</span>
           </div>
         </footer>
       </main>

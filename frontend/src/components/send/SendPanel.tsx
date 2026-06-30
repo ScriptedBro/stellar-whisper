@@ -1,5 +1,6 @@
 import type React from 'react';
 import type { PrivateNote } from '../../types';
+import { XLM_CONTRACT_ID } from '../../config/constants';
 import { NoteSelector } from './NoteSelector';
 
 interface SendPanelProps {
@@ -53,7 +54,7 @@ export function SendPanel({
 }: SendPanelProps) {
   // Filter notes to only show those belonging to the selected asset
   const filteredNotes = notes.filter(n => {
-    const isXlm = n.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+    const isXlm = n.assetAddress === XLM_CONTRACT_ID;
     return selectedAsset === 'XLM' ? isXlm : !isXlm;
   });
 

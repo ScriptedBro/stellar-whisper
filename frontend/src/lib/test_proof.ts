@@ -8,14 +8,13 @@ import {
   EXPECTED_PUBLIC_KEY_HEX, 
   SAMPLE_AMOUNT_HEX, 
   SAMPLE_NULLIFIER_NONCE_HEX, 
-  EXPECTED_NULLIFIER_HEX, 
-  ZERO_HASHES_HEX
+  EXPECTED_NULLIFIER_HEX
 } from './fixtures';
 import { 
   deriveCommitment, 
   hexToBytes
 } from './crypto';
-import { computeLatestMerkleRootOnChain } from './merkle';
+import { computeLatestMerkleRootOnChain, constructMerklePath } from './merkle';
 
 // Helper to convert Uint8Array/hex to number[]
 const toNoirBytes = (val: Uint8Array | string): number[] => {
@@ -57,7 +56,8 @@ async function main() {
   const inputCommitment = await deriveCommitment(pubkeyBytesInput, amountValInput, SAMPLE_NULLIFIER_NONCE_HEX, assetIdBytes);
   const merkleRootHex = await computeLatestMerkleRootOnChain([inputCommitment]);
 
-  const merklePath = ZERO_HASHES_HEX.slice(0, 16).map(h => toNoirBytes(h));
+  const { merklePath: merklePathHashes } = await constructMerklePath([inputCommitment], 0);
+  const merklePath = merklePathHashes.map(h => toNoirBytes(h));
 
   const inputs = {
     secret_key: toNoirBytes(SAMPLE_SECRET_KEY_HEX),

@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { rpc, Contract, Account, TransactionBuilder, Networks, nativeToScVal, scValToNative } from '@stellar/stellar-sdk';
 
-export const XLM_CONTRACT_ID = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
 
 export function useBalances(userAddress: string, tokenContractId: string, _network: string = 'testnet') {
   const [selectedAsset, setSelectedAsset] = useState<'USDC' | 'XLM'>('USDC');

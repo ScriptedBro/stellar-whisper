@@ -57,6 +57,7 @@ pub enum DataKey {
     Verifier,
     NextIndex,
     FilledSubtrees,
+    ZeroHashes,
     Roots(BytesN<32>),
     Nullifiers(BytesN<32>),
     Commitments(BytesN<32>),
@@ -98,11 +99,22 @@ pub enum ContractError {
 // Tree depth constant. Matching our Noir circuit depth of 16.
 const TREE_DEPTH: u32 = 16;
 
-// Helper to get zero hashes for the Merkle tree levels.
-fn get_zero_hash(env: &Env, level: u32) -> BytesN<32> {
-    let mut bytes = [0u8; 32];
-    bytes[0] = level as u8;
-    BytesN::from_array(env, &bytes)
+// Pre-computed zero hashes for the Merkle tree using recursive Poseidon:
+// Z0 = [0u8; 32] (empty leaf)
+// Z1 = Poseidon(Z0, Z0)
+// Z2 = Poseidon(Z1, Z1)
+// ...
+// Z16 = Poseidon(Z15, Z15) (empty tree root)
+fn compute_zero_hashes(env: &Env) -> Vec<BytesN<32>> {
+    let mut zero_hashes: Vec<BytesN<32>> = Vec::new(env);
+    let zero_leaf = BytesN::from_array(env, &[0u8; 32]);
+    zero_hashes.push_back(zero_leaf);
+    for level in 1..=TREE_DEPTH {
+        let prev = zero_hashes.get(level - 1).unwrap();
+        let zh = hash_poseidon_2(env, prev.clone(), prev.clone());
+        zero_hashes.push_back(zh);
+    }
+    zero_hashes
 }
 
 fn val_to_bytes32(env: &Env, val: i128) -> BytesN<32> {
@@ -145,6 +157,7 @@ fn insert_commitment(env: &Env, commitment: BytesN<32>) -> Result<BytesN<32>, Co
     env.storage().persistent().set(&DataKey::Commitments(commitment.clone()), &true);
 
     let mut filled_subtrees: Vec<BytesN<32>> = env.storage().instance().get(&DataKey::FilledSubtrees).ok_or(ContractError::NotInitialized)?;
+    let zero_hashes: Vec<BytesN<32>> = env.storage().instance().get(&DataKey::ZeroHashes).ok_or(ContractError::NotInitialized)?;
     let mut current_level_hash = commitment.clone();
     let mut index = next_index;
 
@@ -154,7 +167,7 @@ fn insert_commitment(env: &Env, commitment: BytesN<32>) -> Result<BytesN<32>, Co
             current_level_hash = hash_poseidon_2(env, left, current_level_hash);
         } else {
             filled_subtrees.set(level, current_level_hash.clone());
-            let right = get_zero_hash(env, level);
+            let right = zero_hashes.get(level).unwrap();
             current_level_hash = hash_poseidon_2(env, current_level_hash, right);
         }
         index /= 2;
@@ -182,16 +195,20 @@ impl Contract {
         env.storage().instance().set(&DataKey::Verifier, &verifier);
         env.storage().instance().set(&DataKey::NextIndex, &0u32);
 
-        // Initialize filled subtrees with default zero hashes
+        // Pre-compute Poseidon-based zero hashes: Z0 = [0;32], Z1 = Poseidon(Z0,Z0), ...
+        let zero_hashes = compute_zero_hashes(&env);
+        env.storage().instance().set(&DataKey::ZeroHashes, &zero_hashes);
+
+        // Initialize filled subtrees (all empty)
         let mut filled_subtrees: Vec<BytesN<32>> = Vec::new(&env);
         for i in 0..TREE_DEPTH {
-            filled_subtrees.push_back(get_zero_hash(&env, i));
+            filled_subtrees.push_back(zero_hashes.get(i).unwrap());
         }
         env.storage().instance().set(&DataKey::FilledSubtrees, &filled_subtrees);
 
         // Set initial empty root as valid
-        let initial_root = get_zero_hash(&env, TREE_DEPTH);
-        env.storage().persistent().set(&DataKey::Roots(initial_root.clone()), &true);
+        let initial_root = zero_hashes.get(TREE_DEPTH).unwrap();
+        env.storage().persistent().set(&DataKey::Roots(initial_root), &true);
 
         Ok(())
     }
@@ -250,27 +267,22 @@ impl Contract {
             return Err(ContractError::InvalidAmount);
         }
 
-        // If pool has reserves, verify ratio is correct: amount_a / reserve_a == amount_b / reserve_b
-        if reserve_a > 0 && reserve_b > 0 {
-            if amount_a * reserve_b != amount_b * reserve_a {
-                env.storage().instance().remove(&lock_key);
-                return Err(ContractError::InvalidAmount);
-            }
-        }
-
         // Transfer tokens from user to contract
         let client_a = soroban_sdk::token::Client::new(&env, &token_a);
         let client_b = soroban_sdk::token::Client::new(&env, &token_b);
         client_a.transfer(&from, &env.current_contract_address(), &amount_a);
         client_b.transfer(&from, &env.current_contract_address(), &amount_b);
 
-        // Calculate and mint LP shares
+        // Calculate and mint LP shares (Uniswap V2 style)
         let total_shares: i128 = env.storage().instance().get(&DataKey::TotalLpShares).unwrap_or(0);
         let shares = if total_shares == 0 {
             // First liquidity provision
             amount_a
         } else {
-            (amount_a * total_shares) / reserve_a
+            // Use the smaller proportional contribution to credit LP shares
+            let shares_a = (amount_a * total_shares) / reserve_a;
+            let shares_b = (amount_b * total_shares) / reserve_b;
+            shares_a.min(shares_b)
         };
 
         if shares < min_shares {
@@ -1046,36 +1058,35 @@ impl Contract {
     }
 }
 
-fn sub_big(a: &mut [u8; 32], b: &[u8; 32]) -> bool {
-    let mut borrow = 0i32;
-    let mut temp = [0u8; 32];
-    for i in (0..32).rev() {
-        let diff = (a[i] as i32) - (b[i] as i32) - borrow;
-        if diff < 0 {
-            temp[i] = (diff + 256) as u8;
-            borrow = 1;
-        } else {
-            temp[i] = diff as u8;
-            borrow = 0;
-        }
-    }
-    if borrow == 0 {
-        *a = temp;
-        true
-    } else {
-        false
-    }
-}
-
-fn reduce_bn254_modulus(mut value: [u8; 32]) -> [u8; 32] {
-    let modulus = [
+fn reduce_bn254_modulus(value: [u8; 32]) -> [u8; 32] {
+    let modulus: [u8; 32] = [
         0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x29,
         0xb8, 0x50, 0x45, 0xb6, 0x81, 0x81, 0x58, 0x5d,
         0x28, 0x33, 0xe8, 0x48, 0x79, 0xb9, 0x70, 0x91,
         0x43, 0xe1, 0xf5, 0x93, 0xf0, 0x00, 0x00, 0x01
     ];
-    while sub_big(&mut value, &modulus) {}
-    value
+    let mut result = value;
+    // At most 4 iterations needed for 256-bit input vs ~254-bit modulus
+    for _ in 0..4 {
+        let mut need_sub = true;
+        for i in 0..32 {
+            if result[i] < modulus[i] { need_sub = false; break; }
+            if result[i] > modulus[i] { break; }
+        }
+        if !need_sub { break; }
+        let mut borrow = 0i32;
+        for i in (0..32).rev() {
+            let diff = (result[i] as i32) - (modulus[i] as i32) - borrow;
+            if diff < 0 {
+                result[i] = (diff + 256) as u8;
+                borrow = 1;
+            } else {
+                result[i] = diff as u8;
+                borrow = 0;
+            }
+        }
+    }
+    result
 }
 
 #[allow(dead_code)]

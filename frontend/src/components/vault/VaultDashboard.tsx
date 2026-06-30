@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { ActivityLog as ActivityLogType, PrivateNote } from '../../types';
+import { XLM_CONTRACT_ID } from '../../config/constants';
 import { PoolStats } from './PoolStats';
 import { ActivityLog } from './ActivityLog';
 import { useNotification } from '../../context/NotificationContext';
@@ -72,7 +73,7 @@ export function VaultDashboard({
   const { showToast, showAlert } = useNotification();
   const activeNotes = notes.filter(n => {
     if (n.spent) return false;
-    const isXlm = n.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
+    const isXlm = n.assetAddress === XLM_CONTRACT_ID;
     return selectedAsset === 'XLM' ? isXlm : !isXlm;
   });
 

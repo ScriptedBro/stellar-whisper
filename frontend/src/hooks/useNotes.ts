@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { rpc, scValToNative, xdr, Contract, Account, TransactionBuilder, Networks, nativeToScVal } from '@stellar/stellar-sdk';
 import type { PrivateNote, ActivityLog } from '../types';
-import { 
+import { XLM_CONTRACT_ID } from '../config/constants';
+import {
   deriveViewingKey, 
   deriveNullifier, 
   decryptNote, 
@@ -86,7 +87,7 @@ export function useNotes(
   zkPrivateKey: string, 
   whisperContractId: string,
   updateShieldedBalances?: (usdcBal: number, xlmBal: number) => void,
-  usdcContractId: string = 'CCD7B5ENZPTMYOB7XZ6VYLCABAQ66TB4UY5BEAQWCZMHMNAXPWKBKXYR'
+  usdcContractId: string = ''
 ) {
   const [notes, setNotes] = useState<PrivateNote[]>([]);
   const [selectedNoteCommitment, setSelectedNoteCommitment] = useState<string>('');
@@ -130,7 +131,6 @@ export function useNotes(
 
     const storedContractId = localStorage.getItem(`whisper_active_contract_${userAddress}`);
     if (!storedContractId || storedContractId !== whisperContractId) {
-      console.log(`Detected contract redeployment (from ${storedContractId} to ${whisperContractId}). Clearing local storage keys to avoid desync.`);
       localStorage.removeItem(`whisper_notes_${userAddress}`);
       localStorage.removeItem(`whisper_shielded_balance_${userAddress}`);
       localStorage.removeItem(`whisper_shielded_balance_usdc_${userAddress}`);
@@ -191,10 +191,10 @@ export function useNotes(
     if (notes.length > 0) {
       const activeNotes = notes.filter(n => !n.spent);
       const unspentUsdcSum = activeNotes
-        .filter(n => n.assetAddress !== 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC')
+        .filter(n => n.assetAddress !== XLM_CONTRACT_ID)
         .reduce((sum, n) => sum + n.amount, 0);
       const unspentXlmSum = activeNotes
-        .filter(n => n.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC')
+        .filter(n => n.assetAddress === XLM_CONTRACT_ID)
         .reduce((sum, n) => sum + n.amount, 0);
       if (updateShieldedBalances) {
         updateShieldedBalances(unspentUsdcSum, unspentXlmSum);
@@ -251,7 +251,6 @@ export function useNotes(
       let usedIndexer = false;
 
       try {
-        console.log("Attempting to sync events from local indexer...");
         setSyncProgress("Querying local indexer...");
         const indexerResponse = await fetch("http://localhost:8123/api/events");
         if (indexerResponse.ok) {
@@ -261,7 +260,7 @@ export function useNotes(
             usedIndexer = true;
             console.log(`Successfully fetched ${events.length} events from local indexer.`);
           } else {
-            console.warn(`Local indexer is running for a different contract: ${indexerData.contractId} vs current ${whisperContractId}`);
+            console.warn(`Indexer contract mismatch: ${indexerData.contractId} vs ${whisperContractId}`);
           }
         }
       } catch (err) {
@@ -270,12 +269,10 @@ export function useNotes(
 
       if (!usedIndexer) {
         if (!isSilent) setSyncProgress(`Scanning blockchain history...`);
-        console.log(`Syncing notes: querying contract ${whisperContractId} from ledger ${startLedger} to ${endLedger}`);
         try {
           events = await fetchContractEvents(server, whisperContractId, startLedger);
         } catch (e: any) {
           const errorMsg = e.message || String(e);
-          console.warn(`Initial event query failed: ${errorMsg}`);
           const match = errorMsg.match(/range:\s*(\d+)/i) || errorMsg.match(/(\d+)\s*-\s*(\d+)/);
           if (match && match[1]) {
             const minLedger = parseInt(match[1], 10);
@@ -299,7 +296,6 @@ export function useNotes(
       for (const event of events) {
         try {
           const topics = (event.topic || []).map((t: any) => scValToNative(xdr.ScVal.fromXDR(t as any, "base64")));
-          console.log("Raw event topics from blockchain:", topics);
           
           const rawEventType = topics[0];
           let eventType = "";
@@ -308,23 +304,14 @@ export function useNotes(
           } else if (rawEventType && (rawEventType instanceof Uint8Array)) {
             eventType = new TextDecoder().decode(rawEventType);
           } else if (rawEventType && typeof rawEventType === 'object') {
-            if (rawEventType.constructor?.name === 'Buffer' || rawEventType.constructor?.name === 'Uint8Array') {
-              eventType = new TextDecoder().decode(Uint8Array.from(rawEventType));
-            } else {
-              eventType = rawEventType.toString();
-            }
+            eventType = rawEventType.toString();
           } else if (rawEventType) {
             eventType = String(rawEventType);
           }
           
-          console.log(`Parsed event type: "${eventType}"`);
-          
           const data = scValToNative(xdr.ScVal.fromXDR(event.value as any, "base64"));
-          console.log(`${eventType} event value data:`, data);
-          
+
           if (eventType === "deposit" || eventType === "shielded_output" || eventType === "shielded_swap") {
-            console.log(`=== Processing ${eventType} event ===`);
-            console.log("  - event:", event);
             
             const isSwap = eventType === "shielded_swap";
             const commitmentVal = data && typeof data === 'object'
@@ -332,14 +319,11 @@ export function useNotes(
                   ? (data.new_commitment || data.newCommitment || (Array.isArray(data) ? data[5] : undefined))
                   : (data.commitment || data.Commitment || (Array.isArray(data) ? data[0] : undefined)))
               : undefined;
-            
-            console.log("  - commitmentVal:", commitmentVal);
+
             if (!commitmentVal) {
-              console.warn("Event is missing commitment field:", data);
               continue;
             }
             const commitmentHex = bytesToHex(commitmentVal);
-            console.log("  - commitmentHex:", commitmentHex);
             allCommitmentsBytes.push(new Uint8Array(commitmentVal as any));
             
             const tokenVal = data && typeof data === 'object'
@@ -363,10 +347,8 @@ export function useNotes(
             const hexCiphertext = encryptedNoteVal ? bytesToHex(encryptedNoteVal) : "";
             
             if (hexCiphertext) {
-              console.log(`Decrypting note for commitment ${commitmentHex} with ciphertext length ${hexCiphertext.length}...`);
               const decrypted = await decryptNote(scanViewingKey, hexCiphertext);
               if (decrypted) {
-                console.log("Successfully decrypted note payload:", decrypted);
                 const { nullifier_nonce, amount: decryptedAmount, assetAddress: decryptedAssetAddress } = decrypted;
                 
                 const noteAmount = decryptedAmount !== undefined ? decryptedAmount : (Number(BigInt(rawAmount)) / 10000000);
@@ -381,8 +363,6 @@ export function useNotes(
                   timestamp: event.ledgerClosedAt || 'Just now',
                   assetAddress: finalAssetAddress
                 });
-              } else {
-                console.log(`Failed to decrypt note for commitment ${commitmentHex} (belongs to another user's public key)`);
               }
             }
           } else if (eventType === "withdrawal" || eventType === "shielded_transfer" || eventType === "shielded_swap") {
@@ -391,7 +371,6 @@ export function useNotes(
               : undefined;
             if (nullifierVal) {
               const nullifierHex = bytesToHex(nullifierVal);
-              console.log(`Found spent nullifier hash from ${eventType}: ${nullifierHex}`);
               spentNullifiers.add(nullifierHex);
             }
           }
@@ -423,7 +402,6 @@ export function useNotes(
       }
       
       const commitmentHexes = allCommitmentsBytes.map(bytes => bytesToHex(bytes));
-      console.log("=== useNotes commitmentHexes ===", commitmentHexes);
       
       // Create a map of existing notes keyed by commitment for merging
       const existingNotesMap = new Map<string, PrivateNote>();
@@ -515,8 +493,6 @@ export function useNotes(
         }
       }
       
-      console.log("=== useNotes finalCommitmentsList ===", finalCommitmentsList);
-
       if (finalCommitmentsList.length > 0) {
         const combinedCommitmentsBytes = finalCommitmentsList.map(hex => hexToBytes(hex));
         const rootHex = await computeLatestMerkleRootOnChain(combinedCommitmentsBytes);
@@ -668,8 +644,8 @@ export function useNotes(
         }
 
         if (isSwap && weSpent && spentNote) {
-          const assetIn = spentNote.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' ? 'XLM' : 'USDC';
-          const assetOut = swapTokenOut === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' ? 'XLM' : 'USDC';
+          const assetIn = spentNote.assetAddress === XLM_CONTRACT_ID ? 'XLM' : 'USDC';
+          const assetOut = swapTokenOut === XLM_CONTRACT_ID ? 'XLM' : 'USDC';
           reconstructed.push({
             id: txHash + "-swap",
             type: 'swap' as any,
@@ -683,7 +659,7 @@ export function useNotes(
           });
         } else if (isDeposit && depositCommitment && decryptedNotesMap.has(depositCommitment)) {
           const depNote = decryptedNotesMap.get(depositCommitment);
-          const depAsset = depNote?.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' ? 'XLM' : 'USDC';
+          const depAsset = depNote?.assetAddress === XLM_CONTRACT_ID ? 'XLM' : 'USDC';
           reconstructed.push({
             id: txHash + "-deposit",
             type: 'deposit',
@@ -697,7 +673,7 @@ export function useNotes(
           const changeNote = weReceivedNotes.find(n => n.commitment !== spentNote!.commitment);
           const changeAmount = changeNote ? changeNote.amount : 0;
           const withdrawnAmount = spentNote.amount - changeAmount;
-          const spentAsset = spentNote.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' ? 'XLM' : 'USDC';
+          const spentAsset = spentNote.assetAddress === XLM_CONTRACT_ID ? 'XLM' : 'USDC';
           reconstructed.push({
             id: txHash + "-withdrawal",
             type: 'transfer',
@@ -713,7 +689,7 @@ export function useNotes(
           const changeNote = weReceivedNotes.find(n => n.commitment !== spentNote!.commitment);
           const changeAmount = changeNote ? changeNote.amount : 0;
           const sentAmount = spentNote.amount - changeAmount;
-          const spentAsset = spentNote.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' ? 'XLM' : 'USDC';
+          const spentAsset = spentNote.assetAddress === XLM_CONTRACT_ID ? 'XLM' : 'USDC';
 
           if (sentAmount > 0) {
             reconstructed.push({
@@ -730,7 +706,7 @@ export function useNotes(
           }
         } else if (weReceivedNotes.length > 0 && !isDeposit) {
           for (const note of weReceivedNotes) {
-            const recvAsset = note.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' ? 'XLM' : 'USDC';
+            const recvAsset = note.assetAddress === XLM_CONTRACT_ID ? 'XLM' : 'USDC';
             reconstructed.push({
               id: txHash + "-transfer-receive-" + note.commitment.slice(0, 6),
               type: 'transfer',
