@@ -50,6 +50,15 @@ echo "✅ USDC Token Asset Contract Deployed! ID: $TOKEN_ID"
 echo "Sleeping 5 seconds to sync ledger sequence number..."
 sleep 5
 
+# 5b. Resolve the native token contract ID (XLM wrapper)
+echo "Step 3e: Resolving Native Token (XLM) Contract ID..."
+TOKEN_B_ID=$(stellar contract id asset \
+  --asset native \
+  --network $NETWORK)
+echo "✅ Native Token Contract ID Resolved: $TOKEN_B_ID"
+echo "Sleeping 5 seconds to sync ledger sequence number..."
+sleep 5
+
 # 6. Deploy the main whisper contract
 echo "Step 3c: Deploying Whisper Contract..."
 WHISPER_ID=$(stellar contract deploy \
@@ -72,7 +81,18 @@ stellar contract invoke \
   --token $TOKEN_ID \
   --verifier $VERIFIER_ID
 
-echo "✅ Whisper Contract Initialized successfully!"
+# 7b. Initialize the AMM pool
+echo "Step 3f: Initializing AMM Pool..."
+stellar contract invoke \
+  --id $WHISPER_ID \
+  --source $ADMIN_KEY \
+  --network $NETWORK \
+  -- \
+  init_amm \
+  --token_a $TOKEN_ID \
+  --token_b $TOKEN_B_ID
+
+echo "✅ Whisper Contract and AMM Pool initialized successfully!"
 
 # 8. Write config to frontend
 echo "Step 4: Writing deployment details to frontend configuration..."
@@ -82,17 +102,28 @@ cat << EOF > frontend/src/config/deployed.json
   "network": "$NETWORK",
   "adminAddress": "$ADMIN_ADDRESS",
   "tokenContractId": "$TOKEN_ID",
+  "tokenBContractId": "$TOKEN_B_ID",
   "verifierContractId": "$VERIFIER_ID",
   "whisperContractId": "$WHISPER_ID"
 }
 EOF
 
-cat << EOF > frontend/.env
+if [ -f frontend/.env ]; then
+    # Keep any lines that do NOT match the VITE_ keys we are updating
+    grep -v -E "^(VITE_NETWORK|VITE_ADMIN_ADDRESS|VITE_TOKEN_CONTRACT_ID|VITE_TOKEN_B_CONTRACT_ID|VITE_VERIFIER_CONTRACT_ID|VITE_WHISPER_CONTRACT_ID)=" frontend/.env > frontend/.env.tmp || true
+else
+    touch frontend/.env.tmp
+fi
+
+cat << EOF >> frontend/.env.tmp
 VITE_NETWORK="$NETWORK"
 VITE_ADMIN_ADDRESS="$ADMIN_ADDRESS"
 VITE_TOKEN_CONTRACT_ID="$TOKEN_ID"
+VITE_TOKEN_B_CONTRACT_ID="$TOKEN_B_ID"
 VITE_VERIFIER_CONTRACT_ID="$VERIFIER_ID"
 VITE_WHISPER_CONTRACT_ID="$WHISPER_ID"
 EOF
+
+mv frontend/.env.tmp frontend/.env
 
 echo "=== Deployment Completed Successfully! ==="

@@ -23,7 +23,6 @@ export function useSorobanCall(whisperContractId: string) {
     useRelayer: boolean = false
   ) => {
     setIsProving(true);
-    setProvingLogs([]);
     
     try {
       const server = new rpc.Server("https://soroban-testnet.stellar.org");

@@ -322,12 +322,17 @@ export function useNotes(
           const data = scValToNative(xdr.ScVal.fromXDR(event.value as any, "base64"));
           console.log(`${eventType} event value data:`, data);
           
-          if (eventType === "deposit" || eventType === "shielded_output") {
-            console.log("=== Processing deposit/shielded_output event ===");
+          if (eventType === "deposit" || eventType === "shielded_output" || eventType === "shielded_swap") {
+            console.log(`=== Processing ${eventType} event ===`);
             console.log("  - event:", event);
-            const commitmentVal = data && typeof data === 'object' 
-              ? (data.commitment || data.Commitment || (Array.isArray(data) ? data[0] : undefined)) 
+            
+            const isSwap = eventType === "shielded_swap";
+            const commitmentVal = data && typeof data === 'object'
+              ? (isSwap
+                  ? (data.new_commitment || data.newCommitment || (Array.isArray(data) ? data[5] : undefined))
+                  : (data.commitment || data.Commitment || (Array.isArray(data) ? data[0] : undefined)))
               : undefined;
+            
             console.log("  - commitmentVal:", commitmentVal);
             if (!commitmentVal) {
               console.warn("Event is missing commitment field:", data);
@@ -337,16 +342,23 @@ export function useNotes(
             console.log("  - commitmentHex:", commitmentHex);
             allCommitmentsBytes.push(new Uint8Array(commitmentVal as any));
             
-            const tokenVal = data && typeof data === 'object' 
-              ? (data.token || data.Token) 
+            const tokenVal = data && typeof data === 'object'
+              ? (isSwap
+                  ? (data.token_out || data.tokenOut || (Array.isArray(data) ? data[2] : undefined))
+                  : (data.token || data.Token || (Array.isArray(data) ? data[1] : undefined)))
               : undefined;
             const eventTokenAddress = tokenVal ? tokenVal.toString() : usdcContractId;
 
-            const rawAmount = data && typeof data === 'object' 
-              ? (data.amount || data.Amount || 0n) 
+            const rawAmount = data && typeof data === 'object'
+              ? (isSwap
+                  ? (data.amount_out || data.amountOut || (Array.isArray(data) ? data[4] : undefined))
+                  : (data.amount || data.Amount || (Array.isArray(data) ? data[3] : 0n)))
               : 0n;
-            const encryptedNoteVal = data && typeof data === 'object' 
-              ? (data.encrypted_note || data.encryptedNote || data.EncryptedNote || (Array.isArray(data) ? data[2] : undefined)) 
+            
+            const encryptedNoteVal = data && typeof data === 'object'
+              ? (isSwap
+                  ? (data.encrypted_note || data.encryptedNote || data.EncryptedNote || (Array.isArray(data) ? data[6] : undefined))
+                  : (data.encrypted_note || data.encryptedNote || data.EncryptedNote || (Array.isArray(data) ? data[2] : undefined)))
               : undefined;
             const hexCiphertext = encryptedNoteVal ? bytesToHex(encryptedNoteVal) : "";
             
@@ -357,10 +369,7 @@ export function useNotes(
                 console.log("Successfully decrypted note payload:", decrypted);
                 const { nullifier_nonce, amount: decryptedAmount, assetAddress: decryptedAssetAddress } = decrypted;
                 
-                // Use decrypted amount if available (for shielded transfer), or fall back to event's public amount (for deposit)
                 const noteAmount = decryptedAmount !== undefined ? decryptedAmount : (Number(BigInt(rawAmount)) / 10000000);
-                
-                // Use decrypted asset address if available, falling back to eventTokenAddress
                 const finalAssetAddress = decryptedAssetAddress || eventTokenAddress;
                 
                 decryptedNotesMap.set(commitmentHex, {
@@ -376,7 +385,7 @@ export function useNotes(
                 console.log(`Failed to decrypt note for commitment ${commitmentHex} (belongs to another user's public key)`);
               }
             }
-          } else if (eventType === "withdrawal" || eventType === "shielded_transfer") {
+          } else if (eventType === "withdrawal" || eventType === "shielded_transfer" || eventType === "shielded_swap") {
             const nullifierVal = data && typeof data === 'object' 
               ? (data.nullifier || data.Nullifier || (Array.isArray(data) ? data[0] : undefined)) 
               : undefined;
@@ -563,9 +572,13 @@ export function useNotes(
         let weReceivedNotes: PrivateNote[] = [];
         let isWithdrawal = false;
         let isDeposit = false;
+        let isSwap = false;
         let depositAmount = 0;
         let depositCommitment = "";
         let eventTimestamp = "Just now";
+        let swapInAmount = 0;
+        let swapOutAmount = 0;
+        let swapTokenOut = "";
 
         for (const event of txEvents) {
           if (event.ledgerClosedAt) {
@@ -625,6 +638,22 @@ export function useNotes(
                   spentNote = nullifierNoteMap.get(nullifierHex);
                 }
               }
+            } else if (eventType === "shielded_swap") {
+              isSwap = true;
+              const nullifierVal = valData && typeof valData === 'object' ? (valData.nullifier || valData.Nullifier) : undefined;
+              if (nullifierVal) {
+                const nullifierHex = bytesToHex(nullifierVal);
+                if (nullifierNoteMap.has(nullifierHex)) {
+                  weSpent = true;
+                  spentNote = nullifierNoteMap.get(nullifierHex);
+                }
+              }
+              const rawAmountIn = valData && typeof valData === 'object' ? (valData.amount_in || valData.amountIn || 0n) : 0n;
+              const rawAmountOut = valData && typeof valData === 'object' ? (valData.amount_out || valData.amountOut || 0n) : 0n;
+              swapInAmount = Number(BigInt(rawAmountIn)) / 10000000;
+              swapOutAmount = Number(BigInt(rawAmountOut)) / 10000000;
+              const tokenOutVal = valData && typeof valData === 'object' ? (valData.token_out || valData.tokenOut) : undefined;
+              swapTokenOut = tokenOutVal ? tokenOutVal.toString() : "";
             }
           } catch (e) {
             console.warn("Error parsing event in log reconstruction:", e);
@@ -638,7 +667,21 @@ export function useNotes(
           }
         }
 
-        if (isDeposit && depositCommitment && decryptedNotesMap.has(depositCommitment)) {
+        if (isSwap && weSpent && spentNote) {
+          const assetIn = spentNote.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' ? 'XLM' : 'USDC';
+          const assetOut = swapTokenOut === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' ? 'XLM' : 'USDC';
+          reconstructed.push({
+            id: txHash + "-swap",
+            type: 'swap' as any,
+            amount: swapInAmount,
+            recipient: `${swapOutAmount.toFixed(2)} ${assetOut}`,
+            timestamp: eventTimestamp,
+            status: 'success',
+            txHash: txHash,
+            details: `Swapped ${swapInAmount} ${assetIn} for ${swapOutAmount.toFixed(2)} ${assetOut}`,
+            asset: assetIn
+          });
+        } else if (isDeposit && depositCommitment && decryptedNotesMap.has(depositCommitment)) {
           const depNote = decryptedNotesMap.get(depositCommitment);
           const depAsset = depNote?.assetAddress === 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC' ? 'XLM' : 'USDC';
           reconstructed.push({

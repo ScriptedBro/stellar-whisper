@@ -145,11 +145,14 @@ export function useTransfers({
   }>({ status: 'idle' });
   const [transferStatus, setTransferStatus] = useState<{
     status: 'idle' | 'success' | 'failed';
-    type: 'transfer' | 'withdraw';
+    type: 'transfer' | 'withdraw' | 'swap';
     amount?: number;
     txHash?: string;
     nullifier?: string;
     error?: string;
+    assetSymbol?: string;
+    toAssetSymbol?: string;
+    toAmount?: number;
   }>({ status: 'idle', type: 'transfer' });
 
   const handleShieldDeposit = async (e: React.FormEvent) => {
@@ -210,12 +213,13 @@ export function useTransfers({
       ? new Uint8Array(encryptedPayloadHex.match(/.{1,2}/g)!.map(byte => parseInt(byte, 16))) 
       : new Uint8Array(0);
     const encryptedNoteScVal = nativeToScVal(encryptedNoteBytes, { type: "bytes" });
+    const circuitVersionScVal = nativeToScVal(1, { type: "u32" });
 
     setActiveTab('pool');
 
     executeSorobanCall(
       "deposit",
-      [fromScVal, tokenScVal, commitmentScVal, amountScVal, encryptedNoteScVal],
+      [fromScVal, tokenScVal, commitmentScVal, amountScVal, encryptedNoteScVal, circuitVersionScVal],
       async (txHash, txResult) => {
         try {
           if (txResult && txResult.returnValue) {
@@ -659,10 +663,24 @@ export function useTransfers({
     );
 
     const tokenScVal = nativeToScVal(activeTokenContractId, { type: "address" });
+    const relayerScVal = xdr.ScVal.scvVoid();
+    const relayerFeeScVal = nativeToScVal(0n, { type: "i128" });
+    const circuitVersionScVal = nativeToScVal(1, { type: "u32" });
 
     executeSorobanCall(
       "transfer_or_withdraw",
-      [tokenScVal, proofScVal, publicInputsScVal, recipientScVal, amountScVal, encryptedNotesScVec, newCommitmentsScVec],
+      [
+        tokenScVal,
+        proofScVal,
+        publicInputsScVal,
+        recipientScVal,
+        amountScVal,
+        relayerScVal,
+        relayerFeeScVal,
+        circuitVersionScVal,
+        encryptedNotesScVec,
+        newCommitmentsScVec
+      ],
       async (txHash) => {
         const newCommitmentHexes = newCommitmentsList.map(bytes => bytesToHex(bytes));
         setAllCommitments(prev => [...prev, ...newCommitmentHexes]);

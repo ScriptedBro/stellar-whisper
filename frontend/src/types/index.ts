@@ -2,13 +2,14 @@ export interface Config {
   network: string;
   adminAddress: string;
   tokenContractId: string;
+  tokenBContractId?: string;
   verifierContractId: string;
   whisperContractId: string;
 }
 
 export interface ActivityLog {
   id: string;
-  type: 'deposit' | 'transfer' | 'compliance';
+  type: 'deposit' | 'transfer' | 'compliance' | 'swap';
   amount?: number;
   recipient?: string;
   timestamp: string;

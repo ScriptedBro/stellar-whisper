@@ -351,7 +351,11 @@ async function main() {
     xdr.ScVal.scvBytes(Buffer.from(assetIdBytes))            // asset_id public input
   ]);
   
+  const tokenScVal = nativeToScVal(tokenContractId, { type: "address" });
   const amountScVal = nativeToScVal(amount, { type: "i128" });
+  const relayerScVal = xdr.ScVal.scvVoid();
+  const relayerFeeScVal = nativeToScVal(0n, { type: "i128" });
+  const circuitVersionScVal = nativeToScVal(1, { type: "u32" });
   const encryptedNotesScVec = xdr.ScVal.scvVec([]);
   const newCommitmentsScVec = xdr.ScVal.scvVec([]);
   
@@ -361,10 +365,14 @@ async function main() {
   })
   .addOperation(whisperContract.call(
     "transfer_or_withdraw",
+    tokenScVal,
     proofScVal,
     publicInputsScVal,
     recipientScVal,
     amountScVal,
+    relayerScVal,
+    relayerFeeScVal,
+    circuitVersionScVal,
     encryptedNotesScVec,
     newCommitmentsScVec
   ))

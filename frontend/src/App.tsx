@@ -25,7 +25,6 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'vault' | 'pool' | 'send' | 'compliance' | 'liquidity' | 'swap'>('vault');
   const { showToast } = useNotification();
 
-  // Deployment configuration state
   const [config] = useState<Config>(() => {
     // Try to load deployed config synchronously if available
     try {
@@ -34,6 +33,7 @@ export default function App() {
         network: import.meta.env.VITE_NETWORK || DEFAULT_CONFIG.network,
         adminAddress: import.meta.env.VITE_ADMIN_ADDRESS || DEFAULT_CONFIG.adminAddress,
         tokenContractId: import.meta.env.VITE_TOKEN_CONTRACT_ID || DEFAULT_CONFIG.tokenContractId,
+        tokenBContractId: import.meta.env.VITE_TOKEN_B_CONTRACT_ID || DEFAULT_CONFIG.tokenBContractId,
         verifierContractId: import.meta.env.VITE_VERIFIER_CONTRACT_ID || DEFAULT_CONFIG.verifierContractId,
         whisperContractId: import.meta.env.VITE_WHISPER_CONTRACT_ID || DEFAULT_CONFIG.whisperContractId
       };
@@ -235,6 +235,10 @@ export default function App() {
               connectWallet={wallet.connectWallet}
               publicXlmBalance={balances.publicXlmBalance}
               publicUsdcBalance={balances.publicUsdcBalance}
+              whisperContractId={config.whisperContractId}
+              executeSorobanCall={soroban.executeSorobanCall}
+              userAddress={wallet.userAddress}
+              fetchBalances={balances.fetchBalances}
             />
           )}
 
@@ -245,6 +249,25 @@ export default function App() {
               shieldedXlmBalance={balances.shieldedXlmBalance}
               shieldedUsdcBalance={balances.shieldedUsdcBalance}
               notes={notes.notes}
+              setNotes={notes.setNotes}
+              zkPrivateKey={wallet.zkPrivateKey}
+              derivedViewingKey={wallet.derivedViewingKey}
+              allCommitments={notes.allCommitments}
+              setAllCommitments={notes.setAllCommitments}
+              executeSorobanCall={soroban.executeSorobanCall}
+              config={config}
+              fetchBalances={balances.fetchBalances}
+              userAddress={wallet.userAddress}
+              syncNotesFromChain={notes.syncNotesFromChain}
+              isProving={soroban.isProving}
+              provingProgress={soroban.provingProgress}
+              provingLogs={soroban.provingLogs}
+              setIsProving={soroban.setIsProving}
+              setProvingProgress={soroban.setProvingProgress}
+              setProvingLogs={soroban.setProvingLogs}
+              addProvingLog={soroban.addProvingLog}
+              setTransferStatus={transfers.setTransferStatus}
+              setLogs={setLogs}
             />
           )}
         </div>
@@ -299,6 +322,9 @@ export default function App() {
         txHash={transfers.transferStatus.txHash}
         nullifier={transfers.transferStatus.nullifier}
         error={transfers.transferStatus.error}
+        assetSymbol={transfers.transferStatus.assetSymbol}
+        toAssetSymbol={transfers.transferStatus.toAssetSymbol}
+        toAmount={transfers.transferStatus.toAmount}
         onClose={() => transfers.setTransferStatus({ status: 'idle', type: 'transfer' })}
       />
 
