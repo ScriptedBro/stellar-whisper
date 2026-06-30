@@ -15,7 +15,7 @@ node_modules/
 .agent/
 .gemini/
 
-# Ignore all markdown files except README.md, ARCHITECTURE.md, and DESIGN.md
+# Ignore all markdown files except root docs, docs/, and design-system
 *.md
 !README.md
 !readme.md
@@ -24,6 +24,12 @@ node_modules/
 !architecture.md
 !DESIGN.md
 !design.md
+!HACKATHON_SUBMISSION.md
+!PR_DESCRIPTION.md
+!project_comparison_and_winner.md
+!liquidity_pools_walkthrough.md
+!docs/*.md
+!design-system/**/*.md
 
 # Indexer DB cache
 indexer/indexer_db.json
