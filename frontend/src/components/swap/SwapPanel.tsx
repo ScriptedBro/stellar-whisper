@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNotification } from '../../context/NotificationContext';
 import type { PrivateNote } from '../../types';
 import { scValToNative, rpc, Contract, Account, TransactionBuilder, Networks, Keypair, nativeToScVal, xdr } from '@stellar/stellar-sdk';
-import { DEFAULT_CONFIG } from '../../config/constants';
+import { DEFAULT_CONFIG, RPC_URL } from '../../config/constants';
 import { Noir } from '@noir-lang/noir_js';
 import { UltraHonkBackend } from '@aztec/bb.js';
 import circuitJson from '../../config/whisper.json';
@@ -22,7 +22,7 @@ import { constructMerklePath } from '../../lib/merkle';
 
 async function fetchOnChainReserves(whisperContractId: string): Promise<[number, number]> {
   try {
-    const server = new rpc.Server("https://soroban-testnet.stellar.org");
+    const server = new rpc.Server(RPC_URL);
     const simAccount = new Account(Keypair.random().publicKey(), "0");
     const contract = new Contract(whisperContractId);
     const tx = new TransactionBuilder(simAccount, {
@@ -45,7 +45,7 @@ async function fetchOnChainReserves(whisperContractId: string): Promise<[number,
   } catch (err) {
     console.error("Error fetching on-chain reserves in SwapPanel:", err);
   }
-  return [1000000000000, 4000000000000]; // Fallback reserves
+  return [0, 0]; // No reserves available
 }
 
 const calculateExactAmountOut = (amountIn: bigint, reserveIn: bigint, reserveOut: bigint): bigint => {
@@ -134,8 +134,8 @@ export function SwapPanel({
   const [filteredNotes, setFilteredNotes] = useState<PrivateNote[]>([]);
   
   const [reserves, setReserves] = useState<{ reserveA: number; reserveB: number }>({
-    reserveA: 1000000000000,
-    reserveB: 4000000000000
+    reserveA: 0,
+    reserveB: 0
   });
 
   // Filter notes based on selected "From" asset and ensure they are not spent
@@ -301,7 +301,7 @@ export function SwapPanel({
 
       // Validate Merkle root on-chain
       const simulationSource = userAddress || config.adminAddress;
-      const server = new rpc.Server("https://soroban-testnet.stellar.org");
+    const server = new rpc.Server(RPC_URL);
       const simAccount = new Account(simulationSource, "0");
       const whisperContract = new Contract(config.whisperContractId);
       

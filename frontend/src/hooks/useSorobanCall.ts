@@ -1,3 +1,4 @@
+import { RPC_URL } from '../config/constants';
 import { useState, useCallback } from 'react';
 import { rpc, Contract, Account, TransactionBuilder, Networks } from '@stellar/stellar-sdk';
 import { 
@@ -25,7 +26,7 @@ export function useSorobanCall(whisperContractId: string) {
     setIsProving(true);
     
     try {
-      const server = new rpc.Server("https://soroban-testnet.stellar.org");
+      const server = new rpc.Server(RPC_URL);
       const { assembleTransaction } = rpc;
 
       if (useRelayer) {

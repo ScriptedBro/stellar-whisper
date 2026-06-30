@@ -2,7 +2,7 @@ import type React from 'react';
 import { useState } from 'react';
 import { nativeToScVal, scValToNative, xdr, Contract, Account, TransactionBuilder, Networks, rpc } from '@stellar/stellar-sdk';
 import type { Config, ActivityLog, PrivateNote } from '../types';
-import { SANCTIONED_ADDRESSES } from '../config/constants';
+import { SANCTIONED_ADDRESSES, RPC_URL } from '../config/constants';
 import { useNotification } from '../context/NotificationContext';
 import { 
   derivePubkey, 
@@ -31,7 +31,7 @@ const whisperCircuit = {
   bytecode: cleanBytecode
 };async function checkIsSanctionedOnChain(address: string, contractId: string, sourceAddress: string): Promise<boolean> {
   try {
-    const server = new rpc.Server("https://soroban-testnet.stellar.org");
+    const server = new rpc.Server(RPC_URL);
     const simAccount = new Account(sourceAddress, "0");
     const contract = new Contract(contractId);
     const tx = new TransactionBuilder(simAccount, {
@@ -53,7 +53,7 @@ const whisperCircuit = {
 }
 
 async function checkMerkleRootOnChain(rootBytes: Uint8Array, contractId: string, sourceAddress: string): Promise<boolean> {
-  const server = new rpc.Server("https://soroban-testnet.stellar.org");
+  const server = new rpc.Server(RPC_URL);
   const simAccount = new Account(sourceAddress, "0");
   const contract = new Contract(contractId);
   const tx = new TransactionBuilder(simAccount, {
@@ -765,7 +765,7 @@ export function useTransfers({
       setProvingProgress(40);
       addLog("Scanning Soroban events for decryptable notes...");
       try {
-        const server = new rpc.Server("https://soroban-testnet.stellar.org");
+    const server = new rpc.Server(RPC_URL);
         const latestLedger = await server.getLatestLedger();
         const endLedger = latestLedger.sequence;
         const startLedger = Math.max(1, endLedger - 10000);

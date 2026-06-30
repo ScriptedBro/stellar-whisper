@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { scValToNative, xdr, rpc, Contract, Account, TransactionBuilder, Networks, nativeToScVal, Keypair } from '@stellar/stellar-sdk';
-import { DEFAULT_CONFIG, XLM_CONTRACT_ID } from '../../config/constants';
+import { DEFAULT_CONFIG, XLM_CONTRACT_ID, RPC_URL } from '../../config/constants';
 import { getOnChainZeroHash, computeLatestMerkleRootOnChain } from '../../lib/merkle';
 
 async function fetchOnChainTvl(
@@ -8,7 +8,7 @@ async function fetchOnChainTvl(
   whisperContractId: string
 ): Promise<number> {
   try {
-    const server = new rpc.Server("https://soroban-testnet.stellar.org");
+    const server = new rpc.Server(RPC_URL);
     const simAccount = new Account(Keypair.random().publicKey(), "0");
     const contract = new Contract(tokenContractId);
     const tx = new TransactionBuilder(simAccount, {

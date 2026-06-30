@@ -1,5 +1,4 @@
 #![no_std]
-#![allow(deprecated)]
 use soroban_sdk::{
     contract, contractimpl, contracttype, contracterror, Address, Bytes, BytesN, Env, Symbol, Vec, Val, IntoVal,
     xdr::ToXdr
@@ -59,6 +58,7 @@ pub enum DataKey {
     FilledSubtrees,
     ZeroHashes,
     Roots(BytesN<32>),
+    RecentRoots,
     Nullifiers(BytesN<32>),
     Commitments(BytesN<32>),
     Sanctioned(Address),
@@ -98,6 +98,9 @@ pub enum ContractError {
 
 // Tree depth constant. Matching our Noir circuit depth of 16.
 const TREE_DEPTH: u32 = 16;
+
+// Maximum allowed amount per operation (1 billion tokens) to prevent overflow panics
+const MAX_AMOUNT: i128 = 1_000_000_000_0000000;
 
 // Pre-computed zero hashes for the Merkle tree using recursive Poseidon:
 // Z0 = [0u8; 32] (empty leaf)
@@ -177,7 +180,19 @@ fn insert_commitment(env: &Env, commitment: BytesN<32>) -> Result<BytesN<32>, Co
     env.storage().instance().set(&DataKey::FilledSubtrees, &filled_subtrees);
 
     let new_root = current_level_hash;
-    env.storage().persistent().set(&DataKey::Roots(new_root.clone()), &true);
+
+    // Store root in bounded recent-roots vec (prunes oldest beyond 100)
+    let mut recent_roots: Vec<BytesN<32>> = env.storage().instance().get(&DataKey::RecentRoots).unwrap_or(Vec::new(env));
+    recent_roots.push_back(new_root.clone());
+    if recent_roots.len() > 100 {
+        // Remove oldest (first) entry
+        let mut pruned: Vec<BytesN<32>> = Vec::new(env);
+        for i in 1..recent_roots.len() {
+            pruned.push_back(recent_roots.get(i).unwrap());
+        }
+        recent_roots = pruned;
+    }
+    env.storage().instance().set(&DataKey::RecentRoots, &recent_roots);
     
     Ok(new_root)
 }
@@ -208,7 +223,9 @@ impl Contract {
 
         // Set initial empty root as valid
         let initial_root = zero_hashes.get(TREE_DEPTH).unwrap();
-        env.storage().persistent().set(&DataKey::Roots(initial_root), &true);
+        let mut recent_roots: Vec<BytesN<32>> = Vec::new(&env);
+        recent_roots.push_back(initial_root);
+        env.storage().instance().set(&DataKey::RecentRoots, &recent_roots);
 
         Ok(())
     }
@@ -262,7 +279,7 @@ impl Contract {
         let mut reserve_a: i128 = env.storage().instance().get(&DataKey::ReserveA).unwrap_or(0);
         let mut reserve_b: i128 = env.storage().instance().get(&DataKey::ReserveB).unwrap_or(0);
 
-        if amount_a <= 0 || amount_b <= 0 {
+        if amount_a <= 0 || amount_a > MAX_AMOUNT || amount_b <= 0 || amount_b > MAX_AMOUNT {
             env.storage().instance().remove(&lock_key);
             return Err(ContractError::InvalidAmount);
         }
@@ -355,7 +372,7 @@ impl Contract {
         let amount_a = (shares * reserve_a) / total_shares;
         let amount_b = (shares * reserve_b) / total_shares;
 
-        if amount_a <= 0 || amount_b <= 0 {
+        if amount_a <= 0 || amount_a > MAX_AMOUNT || amount_b <= 0 || amount_b > MAX_AMOUNT {
             env.storage().instance().remove(&lock_key);
             return Err(ContractError::InvalidAmount);
         }
@@ -444,9 +461,15 @@ impl Contract {
             env.storage().instance().remove(&lock_key);
             return Err(ContractError::SanctionedAddress);
         }
-        if amount <= 0 {
+        if amount <= 0 || amount > MAX_AMOUNT {
             env.storage().instance().remove(&lock_key);
             return Err(ContractError::InvalidAmount);
+        }
+
+        // Check for duplicate commitment BEFORE transferring tokens
+        if env.storage().persistent().has(&DataKey::Commitments(commitment.clone())) {
+            env.storage().instance().remove(&lock_key);
+            return Err(ContractError::CommitmentAlreadyExists);
         }
 
         // 1. Transfer tokens from depositor to this contract vault
@@ -508,7 +531,7 @@ impl Contract {
         let is_public_withdraw = recipient != env.current_contract_address();
 
         if is_public_withdraw {
-            if amount <= 0 {
+            if amount <= 0 || amount > MAX_AMOUNT {
                 env.storage().instance().remove(&lock_key);
                 return Err(ContractError::InvalidAmount);
             }
@@ -571,7 +594,7 @@ impl Contract {
         }
 
         // 1. Verify that the Merkle root is valid (i.e. has been created by a deposit/transfer)
-        if !env.storage().persistent().has(&DataKey::Roots(merkle_root.clone())) {
+        if !Self::is_root_valid(env.clone(), merkle_root.clone()) {
             env.storage().instance().remove(&lock_key);
             return Err(ContractError::InvalidMerkleRoot);
         }
@@ -671,10 +694,8 @@ impl Contract {
             }
         }
 
-        // 6. Mark the nullifier as spent
-        env.storage().persistent().set(&DataKey::Nullifiers(nullifier_hash.clone()), &true);
-
-        // 7. Insert new output commitments for shielded transfer / change notes if provided
+        // 6. Insert new output commitments for shielded transfer / change notes FIRST
+        //    (nullifier is marked only after all commitments succeed, preventing fund loss)
         for i in 0..new_commitments.len() {
             let commitment = new_commitments.get(i).unwrap();
             let encrypted_note = encrypted_notes.get(i).unwrap();
@@ -690,6 +711,9 @@ impl Contract {
                 }
             );
         }
+
+        // 7. Mark the nullifier as spent (after commitments succeed)
+        env.storage().persistent().set(&DataKey::Nullifiers(nullifier_hash.clone()), &true);
 
         // 8. Transfer funds to the recipient if it is not the contract itself (internal shielded transfer/change)
         if recipient != env.current_contract_address() {
@@ -757,7 +781,7 @@ impl Contract {
             return Err(ContractError::NotInitialized);
         }
 
-        if amount_in <= 0 {
+        if amount_in <= 0 || amount_in > MAX_AMOUNT {
             env.storage().instance().remove(&lock_key);
             return Err(ContractError::InvalidAmount);
         }
@@ -811,7 +835,7 @@ impl Contract {
         }
 
         // Verify Merkle root is valid
-        if !env.storage().persistent().has(&DataKey::Roots(merkle_root.clone())) {
+        if !Self::is_root_valid(env.clone(), merkle_root.clone()) {
             env.storage().instance().remove(&lock_key);
             return Err(ContractError::InvalidMerkleRoot);
         }
@@ -859,9 +883,6 @@ impl Contract {
             }
         }
 
-        // Mark nullifier as spent
-        env.storage().persistent().set(&DataKey::Nullifiers(nullifier_hash.clone()), &true);
-
         // 2. Perform Swap AMM logic
         let mut reserve_a: i128 = env.storage().instance().get(&DataKey::ReserveA).unwrap_or(0);
         let mut reserve_b: i128 = env.storage().instance().get(&DataKey::ReserveB).unwrap_or(0);
@@ -885,7 +906,7 @@ impl Contract {
         let denominator = reserve_in * 10000 + amount_in_with_fee;
         let amount_out = numerator / denominator;
 
-        if amount_out < min_amount_out {
+        if amount_out <= 0 || amount_out < min_amount_out {
             env.storage().instance().remove(&lock_key);
             return Err(ContractError::SlippageExceeded);
         }
@@ -926,6 +947,9 @@ impl Contract {
 
         let new_root = insert_commitment(&env, commitment.clone())?;
 
+        // Mark nullifier as spent (after commitment succeeds)
+        env.storage().persistent().set(&DataKey::Nullifiers(nullifier_hash.clone()), &true);
+
         // Publish ShieldedSwapEvent
         env.events().publish(
             (Symbol::new(&env, "shielded_swap"),),
@@ -954,9 +978,15 @@ impl Contract {
         env.storage().persistent().has(&DataKey::Nullifiers(nullifier))
     }
 
-    /// Check if a Merkle root is in the historical roots set.
+    /// Check if a Merkle root is in the recent roots set.
     pub fn is_root_valid(env: Env, root: BytesN<32>) -> bool {
-        env.storage().persistent().has(&DataKey::Roots(root))
+        let recent_roots: Vec<BytesN<32>> = env.storage().instance().get(&DataKey::RecentRoots).unwrap_or(Vec::new(&env));
+        for i in 0..recent_roots.len() {
+            if recent_roots.get(i).unwrap() == root {
+                return true;
+            }
+        }
+        false
     }
 
     /// Set sanction status of an address (Admin only).
@@ -1037,7 +1067,7 @@ impl Contract {
 
         let fee_key = if is_a { DataKey::ProtocolFeeA } else { DataKey::ProtocolFeeB };
         let mut current_fee: i128 = env.storage().instance().get(&fee_key).unwrap_or(0);
-        if current_fee < amount || amount <= 0 {
+        if current_fee < amount || amount <= 0 || amount > MAX_AMOUNT {
             return Err(ContractError::InvalidAmount);
         }
 

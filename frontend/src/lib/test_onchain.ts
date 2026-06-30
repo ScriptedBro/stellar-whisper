@@ -12,6 +12,7 @@ import { UltraHonkBackend } from '@aztec/bb.js';
 import { Noir } from '@noir-lang/noir_js';
 import circuitJson from '../config/whisper.json';
 import deployedJson from '../config/deployed.json';
+import { RPC_URL } from '../config/constants';
 import { 
   derivePubkey,
   deriveCommitment, 
@@ -25,10 +26,13 @@ import { constructMerklePath } from './merkle';
 import crypto from 'crypto';
 
 // Setup RPC server
-const server = new rpc.Server("https://soroban-testnet.stellar.org");
+const server = new rpc.Server(RPC_URL);
 
-// Load alice (funded admin account)
-const aliceSecret = "SCQK3YU3VYRPVQ3NEKL4CSAAQYWCLDGPAPTJ2M562O3TJZKTUFBW6RVP";
+// Load alice from environment or CLI-provided secret (DO NOT hardcode)
+const aliceSecret = process.env.ALICE_SECRET || "";
+if (!aliceSecret) {
+  throw new Error("ALICE_SECRET environment variable must be set");
+}
 const aliceKeypair = Keypair.fromSecret(aliceSecret);
 const aliceAddress = aliceKeypair.publicKey();
 

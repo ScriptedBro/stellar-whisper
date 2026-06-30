@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { rpc, scValToNative, xdr, Contract, Account, TransactionBuilder, Networks, nativeToScVal } from '@stellar/stellar-sdk';
 import type { PrivateNote, ActivityLog } from '../types';
-import { XLM_CONTRACT_ID } from '../config/constants';
+import { XLM_CONTRACT_ID, RPC_URL } from '../config/constants';
 import {
   deriveViewingKey, 
   deriveNullifier, 
@@ -21,7 +21,7 @@ async function checkNullifierOnChain(
   sourceAddress: string
 ): Promise<boolean> {
   try {
-    const server = new rpc.Server("https://soroban-testnet.stellar.org");
+    const server = new rpc.Server(RPC_URL);
     const simAccount = new Account(sourceAddress, "0");
     const contract = new Contract(contractId);
     const tx = new TransactionBuilder(simAccount, {
@@ -240,7 +240,7 @@ export function useNotes(
     
     try {
       const scanViewingKey = await deriveViewingKey(zkPrivateKey);
-      const server = new rpc.Server("https://soroban-testnet.stellar.org");
+    const server = new rpc.Server(RPC_URL);
       
       setSyncProgress('Fetching latest ledger sequence...');
       const latestLedger = await server.getLatestLedger();
@@ -781,14 +781,15 @@ export function useNotes(
   useEffect(() => {
     if (!userAddress || !zkPrivateKey) return;
 
-    const interval = setInterval(() => {
-      if (!isSyncing) {
-        syncNotesFromChain(true);
+    let syncPromise: Promise<void> | null = null;
+    const interval = setInterval(async () => {
+      if (!syncPromise) {
+        syncPromise = syncNotesFromChain(true).finally(() => { syncPromise = null; });
       }
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [userAddress, zkPrivateKey, isSyncing]);
+  }, [userAddress, zkPrivateKey]);
 
   return {
     notes,

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { RPC_URL } from '../../config/constants';
 import { useNotification } from '../../context/NotificationContext';
 import { nativeToScVal, scValToNative, Contract, Account, TransactionBuilder, Networks, rpc } from '@stellar/stellar-sdk';
 
@@ -58,7 +59,7 @@ export function LiquidityPanel({
   const fetchPoolData = useCallback(async () => {
     if (!whisperContractId) return;
     try {
-      const server = new rpc.Server("https://soroban-testnet.stellar.org");
+      const server = new rpc.Server(RPC_URL);
       const queryAddress = userAddress || "GBOFACBLOCKLIST1111111111111111111111111111111111111111";
       const simAccount = new Account(queryAddress, "0");
       const contract = new Contract(whisperContractId);

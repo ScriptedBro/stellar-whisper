@@ -8,6 +8,8 @@ export const SANCTIONED_ADDRESSES = [
 
 export const XLM_CONTRACT_ID = 'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC';
 
+export const RPC_URL = import.meta.env.VITE_RPC_URL || 'https://soroban-testnet.stellar.org';
+
 export const DEFAULT_CONFIG: Config = {
   network: import.meta.env.VITE_NETWORK || 'testnet',
   adminAddress: import.meta.env.VITE_ADMIN_ADDRESS || 'GD42PB2CL44DBKQUMM7Q2I7AHVOXVTZOVQCC4ZYRGONHSZKLISA6WQMD',

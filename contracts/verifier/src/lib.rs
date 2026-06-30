@@ -3,8 +3,7 @@ extern crate alloc;
 #[cfg(all(not(target_family = "wasm"), any(test, feature = "std")))]
 extern crate std;
 pub mod ultrahonk;
-use soroban_sdk::{contract, contractimpl, contracterror, Bytes, BytesN, Env, Vec, U256, vec};
-use soroban_sdk::crypto::bn254::{Fr, Bn254G1Affine, Bn254G2Affine};
+use soroban_sdk::{contract, contractimpl, contracterror, Bytes, BytesN, Env, Vec};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -80,9 +79,7 @@ impl Contract {
 
         match verifier.verify(&env, &proof, &public_inputs_bytes) {
             Ok(_) => Ok(()),
-            Err(e) => {
-                panic!("VerifyError: {:?}", e);
-            }
+            Err(_) => Err(ContractError::ProofVerificationFailed),
         }
     }
 }

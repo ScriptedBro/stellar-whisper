@@ -1,3 +1,4 @@
+import { RPC_URL } from '../config/constants';
 import { useState, useEffect, useCallback } from 'react';
 import { rpc, Contract, Account, TransactionBuilder, Networks, nativeToScVal, scValToNative } from '@stellar/stellar-sdk';
 
@@ -36,7 +37,7 @@ export function useBalances(userAddress: string, tokenContractId: string, _netwo
 
     // 2. Fetch USDC Balance via Soroban RPC
     try {
-      const server = new rpc.Server("https://soroban-testnet.stellar.org");
+      const server = new rpc.Server(RPC_URL);
       
       let sequence = "0";
       try {
