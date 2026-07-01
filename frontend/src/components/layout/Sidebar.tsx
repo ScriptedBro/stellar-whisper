@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { DEFAULT_CONFIG } from '../../config/constants';
 
 interface CopyButtonProps {
   text: string;
@@ -43,8 +44,11 @@ interface SidebarProps {
   connectWallet: () => Promise<void>;
   disconnectWallet: () => void;
   fundWallet: () => Promise<void>;
+  fundUsdc?: () => Promise<void>;
   setShowSettings: (show: boolean) => void;
 }
+
+const USDC_ISSUER = DEFAULT_CONFIG.adminAddress;
 
 export function Sidebar({
   activeTab,
@@ -57,9 +61,19 @@ export function Sidebar({
   connectWallet,
   disconnectWallet,
   fundWallet,
+  fundUsdc,
   setShowSettings
 }: SidebarProps) {
-  return (
+  const [showFaucetModal, setShowFaucetModal] = useState(false);
+  const [faucetLoading, setFaucetLoading] = useState(false);
+
+  const handleFundUsdc = () => {
+    if (fundUsdc) {
+      setShowFaucetModal(true);
+    }
+  };
+
+  return (<>
     <aside className="hidden md:flex flex-col h-screen w-64 fixed left-0 top-0 bg-white/3 backdrop-blur-2xl border-r border-white/10 py-5 px-3 z-50">
       <div className="flex items-center gap-3 mb-6 px-2">
         <div className="w-8 h-8 rounded-lg bg-primary-container flex items-center justify-center cyber-glow">
@@ -123,13 +137,24 @@ export function Sidebar({
 
       <div className="mt-auto pt-3 border-t border-white/5 space-y-1.5">
         {isConnected && (
-          <button 
-            onClick={fundWallet}
-            className="w-full bg-[#8a2be2] text-white py-1.5 rounded-xl font-bold flex items-center justify-center gap-2 mb-2 hover:bg-[#8a2be2]/90 active:scale-95 transition-all text-xs border border-white/10"
-          >
-            <span className="material-symbols-outlined text-xs">add</span>
-            Fund Testnet Wallet
-          </button>
+          <>
+            <button 
+              onClick={fundWallet}
+              className="w-full bg-[#8a2be2] text-white py-1.5 rounded-xl font-bold flex items-center justify-center gap-2 hover:bg-[#8a2be2]/90 active:scale-95 transition-all text-xs border border-white/10"
+            >
+              <span className="material-symbols-outlined text-xs">add</span>
+              Fund XLM
+            </button>
+            {fundUsdc && (
+              <button 
+                onClick={handleFundUsdc}
+                className="w-full bg-[#00dce5]/20 text-[#00dce5] py-1.5 rounded-xl font-bold flex items-center justify-center gap-2 mb-2 hover:bg-[#00dce5]/30 active:scale-95 transition-all text-xs border border-[#00dce5]/30"
+              >
+                <span className="material-symbols-outlined text-xs">monetization_on</span>
+                Fund USDC
+              </button>
+            )}
+          </>
         )}
 
         <button 
@@ -177,5 +202,60 @@ export function Sidebar({
         </div>
       </div>
     </aside>
-  );
+
+    {showFaucetModal && (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        <div className="w-full max-w-md mx-4 rounded-2xl border border-[#00dce5]/30 bg-[#0a0a1a] p-6 shadow-2xl">
+          <h2 className="text-lg font-bold text-white mb-4">Fund USDC</h2>
+
+          <div className="space-y-3 text-sm text-[#cfc2d7]">
+            <p>Before funding, make sure USDC is added to your Freighter wallet on <span className="text-[#00f4fe] font-bold">Stellar Testnet</span>:</p>
+
+            <div className="rounded-lg bg-white/5 border border-white/10 p-3 space-y-2 text-xs font-mono">
+              <div>
+                <span className="text-[#00dce5]">Network:</span>{' '}
+                <span className="text-white font-bold">Testnet</span>
+              </div>
+              <div>
+                <span className="text-[#00dce5]">Asset Code:</span>{' '}
+                <span className="text-white">USDC</span>
+              </div>
+              <div>
+                <span className="text-[#00dce5]">Issuer:</span>{' '}
+                <span className="text-white break-all">{USDC_ISSUER}</span>
+              </div>
+            </div>
+
+            <p className="text-xs text-[#cfc2d7]/70">To add in Freighter: open the extension → Manage Assets → Add Asset → enter the details above.</p>
+          </div>
+
+          <div className="mt-6 flex gap-3">
+            <button
+              onClick={() => setShowFaucetModal(false)}
+              className="flex-1 py-2 rounded-xl border border-white/10 text-[#cfc2d7] font-bold text-xs hover:bg-white/5 transition-all"
+              disabled={faucetLoading}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={async () => {
+                setFaucetLoading(true);
+                if (fundUsdc) await fundUsdc();
+                setFaucetLoading(false);
+                setShowFaucetModal(false);
+              }}
+              className="flex-1 py-2 rounded-xl bg-[#00dce5] text-black font-bold text-xs hover:bg-[#00dce5]/90 transition-all flex items-center justify-center gap-2"
+              disabled={faucetLoading}
+            >
+              {faucetLoading ? (
+                <><span className="material-symbols-outlined text-xs animate-spin">sync</span> Funding...</>
+              ) : (
+                <><span className="material-symbols-outlined text-xs">monetization_on</span> Proceed with Funding</>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+  </>);
 }

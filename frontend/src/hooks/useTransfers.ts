@@ -18,6 +18,18 @@ import {
   deriveViewingKey,
   getAssetId
 } from '../lib/crypto';
+
+// ScVal can be a base64 string (from indexer/Supabase) or an ScVal object (from direct RPC)
+function parseScVal(input: any): any {
+  if (input && typeof input === 'object' && typeof input.toXDR === 'function') {
+    return scValToNative(input);
+  }
+  if (input && typeof input === 'object' && input.xdr) {
+    return scValToNative(xdr.ScVal.fromXDR(input.xdr, "base64"));
+  }
+  return scValToNative(xdr.ScVal.fromXDR(input, "base64"));
+}
+
 import { constructMerklePath } from '../lib/merkle';
 import { Noir } from '@noir-lang/noir_js';
 import { UltraHonkBackend } from '@aztec/bb.js';
@@ -354,9 +366,16 @@ export function useTransfers({
       .filter(n => !n.spent && (selectedAsset === 'USDC' ? n.assetAddress !== config.xlmContractId : n.assetAddress === config.xlmContractId))
       .sort((a, b) => a.amount - b.amount);
     const amtRounded = Math.round(amt * 10000000) / 10000000;
-    let noteToSpend = unspentNotes.find(n => Math.round(n.amount * 10000000) / 10000000 >= amtRounded);
-    if (!noteToSpend) {
-      noteToSpend = unspentNotes.find(n => n.commitment === selectedNoteCommitment);
+    let noteToSpend = selectedNoteCommitment
+      ? unspentNotes.find(n => n.commitment === selectedNoteCommitment)
+      : null;
+    
+    // If user's selected note can't cover, auto-find a better one
+    if (!noteToSpend || Math.round(noteToSpend.amount * 10000000) / 10000000 < amtRounded) {
+      const betterNote = unspentNotes.find(n => Math.round(n.amount * 10000000) / 10000000 >= amtRounded);
+      if (betterNote) {
+        noteToSpend = betterNote;
+      }
     }
     
     if (!noteToSpend) {
@@ -795,12 +814,12 @@ export function useTransfers({
         
         for (const event of events) {
           try {
-            const topics = (event.topic || []).map(t => scValToNative(xdr.ScVal.fromXDR(t as any, "base64")));
+            const topics = (event.topic || []).map(t => parseScVal(t));
             const rawEventType = topics[0];
             let eventType = typeof rawEventType === 'string' ? rawEventType : new TextDecoder().decode(Uint8Array.from(rawEventType as any));
             
             if (eventType === "deposit" || eventType === "shielded_output") {
-              const data = scValToNative(xdr.ScVal.fromXDR(event.value as any, "base64"));
+              const data = parseScVal(event.value);
               const commitmentVal = data && typeof data === 'object' 
                 ? (data.commitment || data.Commitment || (Array.isArray(data) ? data[0] : undefined)) 
                 : undefined;

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { rpc, scValToNative, xdr, Contract, Account, TransactionBuilder, Networks, nativeToScVal } from '@stellar/stellar-sdk';
 import type { PrivateNote, ActivityLog } from '../types';
-import { XLM_CONTRACT_ID, RPC_URL } from '../config/constants';
+import { XLM_CONTRACT_ID, RPC_URL, SUPABASE_URL, SUPABASE_ANON_KEY } from '../config/constants';
+import { createClient } from '@supabase/supabase-js';
 import {
   deriveViewingKey, 
   deriveNullifier, 
@@ -19,7 +20,7 @@ async function checkNullifierOnChain(
   nullifierBytes: Uint8Array,
   contractId: string,
   sourceAddress: string
-): Promise<boolean> {
+): Promise<boolean | null> {
   try {
     const server = new rpc.Server(RPC_URL);
     const simAccount = new Account(sourceAddress, "0");
@@ -39,7 +40,7 @@ async function checkNullifierOnChain(
   } catch (e) {
     console.warn("On-chain nullifier check failed:", e);
   }
-  return false;
+  return null;
 }
 
 const fetchContractEvents = async (
@@ -81,6 +82,46 @@ const fetchContractEvents = async (
 
   return events;
 };
+
+const supabase = (SUPABASE_URL && SUPABASE_ANON_KEY)
+  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
+
+function rowToEvent(row: any) {
+  return {
+    id: row.id,
+    type: row.type,
+    ledger: row.ledger,
+    ledgerClosedAt: row.ledger_closed_at,
+    contractId: row.contract_id,
+    txHash: row.tx_hash,
+    topic: typeof row.topic === 'string' ? JSON.parse(row.topic) : (row.topic || []),
+    value: row.value,
+    tokenAddress: row.token_address || ''
+  };
+}
+
+// ScVal can be a base64 string (from indexer/Supabase) or an ScVal object (from direct RPC)
+function parseScVal(input: any): any {
+  if (input && typeof input === 'object' && typeof input.toXDR === 'function') {
+    return scValToNative(input);
+  }
+  if (input && typeof input === 'object' && input.xdr) {
+    return scValToNative(xdr.ScVal.fromXDR(input.xdr, "base64"));
+  }
+  return scValToNative(xdr.ScVal.fromXDR(input, "base64"));
+}
+
+async function fetchEventsFromSupabase(whisperContractId: string): Promise<any[]> {
+  if (!supabase) return [];
+  const { data } = await supabase
+    .from('events')
+    .select('*')
+    .eq('contract_id', whisperContractId)
+    .order('ledger', { ascending: true })
+    .limit(10000);
+  return (data || []).map(rowToEvent);
+}
 
 export function useNotes(
   userAddress: string, 
@@ -242,32 +283,48 @@ export function useNotes(
       const scanViewingKey = await deriveViewingKey(zkPrivateKey);
     const server = new rpc.Server(RPC_URL);
       
-      setSyncProgress('Fetching latest ledger sequence...');
+      if (!isSilent) setSyncProgress('Fetching latest ledger sequence...');
       const latestLedger = await server.getLatestLedger();
       const endLedger = latestLedger.sequence;
       
       const startLedger = 1;
       let events: any[] = [];
-      let usedIndexer = false;
+      let usedFallback = false;
 
-      try {
-        setSyncProgress("Querying local indexer...");
-        const indexerResponse = await fetch("http://localhost:8123/api/events");
-        if (indexerResponse.ok) {
-          const indexerData = await indexerResponse.json();
-          if (indexerData.contractId === whisperContractId) {
-            events = indexerData.events || [];
-            usedIndexer = true;
-            console.log(`Successfully fetched ${events.length} events from local indexer.`);
-          } else {
-            console.warn(`Indexer contract mismatch: ${indexerData.contractId} vs ${whisperContractId}`);
+      if (supabase) {
+        try {
+          if (!isSilent) setSyncProgress("Querying Supabase...");
+          const supabaseEvents = await fetchEventsFromSupabase(whisperContractId);
+          if (supabaseEvents.length > 0) {
+            events = supabaseEvents;
+            usedFallback = true;
+            console.log(`Successfully fetched ${events.length} events from Supabase.`);
           }
+        } catch (err) {
+          console.log("Supabase query failed.", err);
         }
-      } catch (err) {
-        console.log("Local indexer is not running or unreachable. Falling back to direct blockchain scan.");
       }
 
-      if (!usedIndexer) {
+      if (!usedFallback) {
+        try {
+          if (!isSilent) setSyncProgress("Querying local indexer...");
+          const indexerResponse = await fetch("http://localhost:8123/api/events");
+          if (indexerResponse.ok) {
+            const indexerData = await indexerResponse.json();
+            if (indexerData.contractId === whisperContractId) {
+              events = indexerData.events || [];
+              usedFallback = true;
+              console.log(`Successfully fetched ${events.length} events from local indexer.`);
+            } else {
+              console.warn(`Indexer contract mismatch: ${indexerData.contractId} vs ${whisperContractId}`);
+            }
+          }
+        } catch (err) {
+          console.log("Local indexer is not running or unreachable.");
+        }
+      }
+
+      if (!usedFallback) {
         if (!isSilent) setSyncProgress(`Scanning blockchain history...`);
         try {
           events = await fetchContractEvents(server, whisperContractId, startLedger);
@@ -295,7 +352,7 @@ export function useNotes(
       
       for (const event of events) {
         try {
-          const topics = (event.topic || []).map((t: any) => scValToNative(xdr.ScVal.fromXDR(t as any, "base64")));
+          const topics = (event.topic || []).map((t: any) => parseScVal(t));
           
           const rawEventType = topics[0];
           let eventType = "";
@@ -309,7 +366,7 @@ export function useNotes(
             eventType = String(rawEventType);
           }
           
-          const data = scValToNative(xdr.ScVal.fromXDR(event.value as any, "base64"));
+          const data = parseScVal(event.value);
 
           if (eventType === "deposit" || eventType === "shielded_output" || eventType === "shielded_swap") {
             
@@ -431,11 +488,15 @@ export function useNotes(
           // If not found in scanned events, query contract directly on-chain to check spent status
           if (!isSpent) {
             const simulationSource = userAddress;
-            isSpent = await checkNullifierOnChain(
+            const onChainResult = await checkNullifierOnChain(
               nullifierBytes,
               whisperContractId,
               simulationSource
             );
+            // null means the check failed — keep the existing spent status rather than defaulting to false
+            if (onChainResult !== null) {
+              isSpent = onChainResult;
+            }
           }
           
           return {
@@ -569,7 +630,7 @@ export function useNotes(
           }
 
           try {
-            const topics = (event.topic || []).map((t: any) => scValToNative(xdr.ScVal.fromXDR(t as any, "base64")));
+            const topics = (event.topic || []).map((t: any) => parseScVal(t));
             const rawEventType = topics[0];
             let eventType = "";
             if (typeof rawEventType === 'string') {
@@ -586,7 +647,7 @@ export function useNotes(
               eventType = String(rawEventType);
             }
 
-            const valData = scValToNative(xdr.ScVal.fromXDR(event.value as any, "base64"));
+            const valData = parseScVal(event.value);
 
             if (eventType === "deposit") {
               isDeposit = true;

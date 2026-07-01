@@ -100,6 +100,27 @@ export default function App() {
     }
   };
 
+  const fundUsdc = async () => {
+    if (!wallet.userAddress) return;
+    try {
+      showToast("Requesting USDC from faucet...", "info");
+      const res = await fetch("http://localhost:8123/api/faucet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address: wallet.userAddress })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`Received ${data.amount} USDC!`, "success");
+      } else {
+        showToast("USDC faucet failed: " + (data.error || "unknown"), "error");
+      }
+      await balances.fetchBalances(wallet.userAddress);
+    } catch (e: any) {
+      showToast("USDC faucet failed: " + e.message, "error");
+    }
+  };
+
   return (
     <div className="app-container min-h-screen text-[#cfc2d7]">
       {/* Sidebar navigation */}
@@ -114,6 +135,7 @@ export default function App() {
         connectWallet={wallet.connectWallet}
         disconnectWallet={wallet.disconnectWallet}
         fundWallet={fundWallet}
+        fundUsdc={fundUsdc}
         setShowSettings={setShowSettings}
       />
 
