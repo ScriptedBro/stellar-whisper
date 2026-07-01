@@ -149,80 +149,74 @@ Here is how a **10 USDC shielded transfer** from Alice to Bob unfolds across the
 
 ---
 
+## 📚 Documentation
+
+| Document | Description |
+|----------|-------------|
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | Deep cryptographic & system architecture |
+| [docs/OVERVIEW.md](./docs/OVERVIEW.md) | Project overview and key concepts |
+| [docs/SETUP.md](./docs/SETUP.md) | Detailed setup guide with troubleshooting |
+| [docs/SMART_CONTRACTS.md](./docs/SMART_CONTRACTS.md) | Smart contract API reference (Whisper + Verifier) |
+| [docs/FRONTEND.md](./docs/FRONTEND.md) | Frontend architecture, hooks, and cryptography |
+| [docs/INDEXER.md](./docs/INDEXER.md) | Indexer REST API and relay proxy docs |
+| [docs/CIRCUITS.md](./docs/CIRCUITS.md) | ZK circuit specification and constraints |
+| [docs/TESTING.md](./docs/TESTING.md) | Testing guide with test descriptions |
+| [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) | Deployment guide (automated + manual) |
+| [docs/FAQ.md](./docs/FAQ.md) | Frequently asked questions |
+| [liquidity_pools_walkthrough.md](./liquidity_pools_walkthrough.md) | Hybrid AMM walkthrough |
+| [DESIGN.md](./DESIGN.md) | Glassmorphic design system specification |
+
+---
+
 ## 📁 Repository Layout
 
 ```
-├── contracts/                  # Soroban Smart Contracts
-│   ├── whisper/                # Main Shielded Pool Contract (Merkle state & logic)
-│   └── verifier/               # Full UltraHonk ZK verifier contract (Gemini + Shplonk + KZG)
-├── circuits/                   # Noir ZK Circuits
-│   └── whisper/                # Private spend and value conservation circuit
-├── frontend/                   # Vite + React (TypeScript) Web Wallet
-│   ├── src/components/         # Glassmorphic Wallet UI components
-│   ├── src/hooks/              # Wallet connection, notes synchronization & transfer hooks
-│   └── src/lib/                # Cryptographic utilities & Merkle path generators
-├── indexer/                    # Event indexer caching Soroban ledger events
-└── scripts/                    # Build, setup, and deployment orchestrations
+├── ARCHITECTURE.md              # Cryptographic & system architecture deep dive
+├── DESIGN.md                    # Glassmorphic design system specification
+├── liquidity_pools_walkthrough.md   # Hybrid AMM walkthrough
+├── docs/                        # Comprehensive documentation suite
+│   ├── OVERVIEW.md, SETUP.md, SMART_CONTRACTS.md, FRONTEND.md
+│   ├── INDEXER.md, CIRCUITS.md, TESTING.md, DEPLOYMENT.md, FAQ.md
+├── contracts/                   # Soroban Smart Contracts (Rust)
+│   ├── whisper/                 # Shielded Pool Contract (Merkle, AMM, compliance)
+│   └── verifier/                # UltraHonk ZK verifier contract
+├── circuits/                    # Noir ZK Circuits
+│   └── whisper/                 # Spend circuit (139 lines, 8 public inputs)
+├── frontend/                    # Vite + React (TypeScript) Web Wallet
+│   ├── src/components/          # Glassmorphic UI components
+│   ├── src/hooks/               # Wallet connection, notes, transfers
+│   └── src/lib/                 # Crypto primitives, Merkle utilities
+├── indexer/                     # Node.js event indexer + relay proxy
+└── scripts/                     # Build, setup, and deployment scripts
 ```
 
 ---
 
 ## 🚀 Getting Started
 
-### Prerequisites
-*   [Rust & Cargo](https://rustup.rs/) (v1.95.0+)
-*   [NodeJS & NPM](https://nodejs.org/) (v24+)
-*   [Stellar CLI](https://github.com/stellar/stellar-cli) (v25+)
+See the [detailed setup guide](./docs/SETUP.md) for full instructions. Quick start:
 
-### 1. Setup Environment
-Execute the automated setup script to verify dependencies and install the correct Noir compiler (`nargo`):
 ```bash
-./scripts/setup.sh
-```
-Ensure the Nargo binary is loaded in your path:
-```bash
-export PATH="$HOME/.nargo/bin:$PATH"
-```
+# Prerequisites: Rust, Node.js >= 24, Stellar CLI >= 25
 
-### 2. Run Smart Contract Tests
-Validate the cryptographic operations and pool logic in the mock Soroban environment:
-```bash
+# 1. Setup dependencies
+./scripts/setup.sh && export PATH="$HOME/.nargo/bin:$PATH"
+
+# 2. Install all package dependencies
+npm install && cd indexer && npm install && cd ../frontend && npm install && cd ..
+
+# 3. Run tests
 cargo test
-```
 
-### 3. Deploy and Initialize (Testnet)
-Build, optimize, and deploy the contracts to the Stellar testnet, then export contract IDs to the frontend:
-```bash
+# 4. Deploy to testnet
 ./scripts/deploy.sh
+
+# 5. Start frontend + indexer
+npm run dev
+# Frontend: http://localhost:5173 | Indexer: http://localhost:8123
 ```
-*Note: This script automatically runs `stellar contract optimize` to reduce bytecode size and ensure transactions stay well within testnet gas limits.*
 
-### 4. Run Frontend and Indexer
-To circumvent Soroban RPC event pruning limitations, you must run the off-chain indexer concurrently with the frontend:
-
-1.  **Install Workspace Dependencies:**
-    From the project root:
-    ```bash
-    # Install root workspace tooling
-    npm install
-    
-    # Install indexer dependencies
-    cd indexer && npm install && cd ..
-    
-    # Install frontend dependencies
-    cd frontend && npm install && cd ..
-    ```
-
-2.  **Start Services Concurrently:**
-    Run the dev workspace command:
-    ```bash
-    npm run dev
-    ```
-    This starts:
-    *   **Indexer Service**: `http://localhost:8123` (syncing events to `indexer_db.json`)
-    *   **Vite Dev Server**: `http://localhost:5173`
-
-Open [http://localhost:5173](http://localhost:5173) in your browser to access the glassmorphic wallet dashboard.
+See [docs/SETUP.md](./docs/SETUP.md) for troubleshooting, [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) for deployment options, and [docs/INDEXER.md](./docs/INDEXER.md) for the indexer API.
 
 ---
 
@@ -238,13 +232,10 @@ Stellar Whisper integrates **OpenZeppelin's managed Stellar Channels service** t
 5. **Absolute Unlinkability:** The transaction is completed without the user needing to pay network gas fees or hold any XLM. This removes the possibility of a "gas funding source" correlation attack, ensuring absolute cryptographic unlinkability and a seamless, premium UX.
 
 ### 🔑 Setup Instructions
-To enable gasless relaying on the Stellar Testnet:
-1. **Generate a free API Key:** Visit [https://channels.openzeppelin.com/testnet/gen](https://channels.openzeppelin.com/testnet/gen) in your browser to instantly generate a Testnet Channels API Key.
-2. **Add to Environment:** Save the key in your `frontend/.env` file:
-   ```env
-   OPENZEPPELIN_CHANNELS_API_KEY="your_generated_api_key_here"
-   ```
-3. **Start the workspace:** Run `npm run dev`. The indexer will securely load the key and automatically route all shielded send/withdraw operations through the relayer.
+See the [relayer configuration docs](./docs/INDEXER.md#relay-flow) for detailed setup. Quick start:
+1. **Generate a free API Key:** Visit [https://channels.openzeppelin.com/testnet/gen](https://channels.openzeppelin.com/testnet/gen)
+2. **Add to Environment:** `OPENZEPPELIN_CHANNELS_API_KEY="your_key"` in `frontend/.env`
+3. **Restart services:** `npm run dev` — transactions route through the relayer automatically.
 
 ---
 

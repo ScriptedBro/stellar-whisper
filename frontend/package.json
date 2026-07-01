@@ -17,6 +17,7 @@
     "@noir-lang/noir_js": "^1.0.0-beta.0",
     "@stellar/freighter-api": "^6.0.1",
     "@stellar/stellar-sdk": "^16.0.0",
+    "@supabase/supabase-js": "^2.110.0",
     "buffer": "^6.0.3",
     "lucide-react": "^1.21.0",
     "react": "^19.2.6",

@@ -3,7 +3,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
 import cors from 'cors';
-import { rpc, xdr, scValToNative } from '@stellar/stellar-sdk';
+import { rpc, xdr, scValToNative, Keypair, Account, TransactionBuilder, Networks, nativeToScVal, Contract, BASE_FEE } from '@stellar/stellar-sdk';
+import { createClient } from '@supabase/supabase-js';
 
 function extractTokenFromTx(envelopeXdrBase64, targetContractId) {
   try {
@@ -108,31 +109,33 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Initialize OpenZeppelin Channels client if API key is provided
-let relayerClient = null;
-const apiKey = process.env.OPENZEPPELIN_CHANNELS_API_KEY || process.env.CHANNELS_API_KEY;
-if (apiKey) {
-  try {
-    relayerClient = new ChannelsClient({
-      baseUrl: "https://channels.openzeppelin.com/testnet",
-      apiKey: apiKey
-    });
-    console.log("🚀 OpenZeppelin Channels Relayer Client initialized for Soroban Testnet!");
-  } catch (e) {
-    console.error("❌ Failed to initialize OpenZeppelin Channels Client:", e);
+// Storage abstraction — supports Supabase or local JSON file
+let useSupabase = false;
+let supabase = null;
+
+function initStorage() {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY;
+
+  if (supabaseUrl && supabaseKey) {
+    supabase = createClient(supabaseUrl, supabaseKey);
+    useSupabase = true;
+    console.log("Using Supabase storage");
+    return;
   }
-} else {
-  console.log("⚠️ OPENZEPPELIN_CHANNELS_API_KEY is not set. Relayer transaction submissions will return instructions.");
+
+  useSupabase = false;
+  console.log("Using local JSON file storage");
 }
 
-// Initialize database
+// ------ Local JSON storage ------
 let db = {
   lastSyncedLedger: 0,
   events: [],
   contractId: ""
 };
 
-function loadDb() {
+function loadJsonDb() {
   if (fs.existsSync(DB_PATH)) {
     try {
       const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
@@ -144,7 +147,7 @@ function loadDb() {
   }
 }
 
-function saveDb() {
+function saveJsonDb() {
   try {
     fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), 'utf8');
   } catch (e) {
@@ -152,20 +155,137 @@ function saveDb() {
   }
 }
 
+// ------ Supabase storage ------
+// Map between camelCase (API) and snake_case (Postgres)
+function eventToRow(event) {
+  return {
+    id: event.id,
+    type: event.type,
+    ledger: event.ledger,
+    ledger_closed_at: event.ledgerClosedAt,
+    contract_id: event.contractId,
+    tx_hash: event.txHash,
+    topic: event.topic ? JSON.stringify(event.topic) : '[]',
+    value: event.value,
+    token_address: event.tokenAddress || null
+  };
+}
+
+function rowToEvent(row) {
+  return {
+    id: row.id,
+    type: row.type,
+    ledger: row.ledger,
+    ledgerClosedAt: row.ledger_closed_at,
+    contractId: row.contract_id,
+    txHash: row.tx_hash,
+    topic: typeof row.topic === 'string' ? JSON.parse(row.topic) : (row.topic || []),
+    value: row.value,
+    tokenAddress: row.token_address || ''
+  };
+}
+
+async function loadSupabaseState() {
+  const { data } = await supabase.from('sync_state').select('key, value');
+  if (data) {
+    for (const row of data) {
+      if (row.key === 'lastSyncedLedger') db.lastSyncedLedger = parseInt(row.value, 10) || 0;
+      if (row.key === 'contractId') db.contractId = row.value || '';
+    }
+  }
+  console.log(`Supabase sync state loaded. Last synced ledger: ${db.lastSyncedLedger}, contract: ${db.contractId}`);
+}
+
+async function saveSupabaseState() {
+  const upserts = [
+    { key: 'lastSyncedLedger', value: String(db.lastSyncedLedger) },
+    { key: 'contractId', value: db.contractId }
+  ];
+  for (const row of upserts) {
+    await supabase.from('sync_state').upsert(row, { onConflict: 'key' });
+  }
+}
+
+async function loadSupabaseEvents() {
+  const { data } = await supabase
+    .from('events')
+    .select('*')
+    .eq('contract_id', whisperContractId || db.contractId)
+    .order('ledger', { ascending: false })
+    .limit(10000);
+  db.events = (data || []).map(rowToEvent);
+  console.log(`Loaded ${db.events.length} events from Supabase`);
+}
+
+async function saveSupabaseEvent(event) {
+  const row = eventToRow(event);
+  const { error } = await supabase.from('events').upsert(row, { onConflict: 'id' });
+  if (error) console.error("Supabase event upsert error:", error);
+}
+
+async function deleteSupabaseEvents(contractId) {
+  if (!useSupabase || !contractId) return;
+  console.log(`Deleting events for old contract ${contractId} from Supabase...`);
+  const { error } = await supabase.from('events').delete().eq('contract_id', contractId);
+  if (error) console.error("Supabase delete error:", error);
+}
+
+// ------ Storage-agnostic helpers ------
+async function loadStorage() {
+  if (useSupabase) {
+    await loadSupabaseState();
+    await loadSupabaseEvents();
+  } else {
+    loadJsonDb();
+  }
+}
+
+async function saveStorage() {
+  if (useSupabase) {
+    await saveSupabaseState();
+  } else {
+    saveJsonDb();
+  }
+}
+
+// ------ Init ------
+initStorage();
+
+// Initialize OpenZeppelin Channels client if API key is provided
+let relayerClient = null;
+const apiKey = process.env.OPENZEPPELIN_CHANNELS_API_KEY || process.env.CHANNELS_API_KEY;
+if (apiKey) {
+  try {
+    relayerClient = new ChannelsClient({
+      baseUrl: "https://channels.openzeppelin.com/testnet",
+      apiKey: apiKey
+    });
+    console.log("OpenZeppelin Channels Relayer Client initialized for Soroban Testnet!");
+  } catch (e) {
+    console.error("Failed to initialize OpenZeppelin Channels Client:", e);
+  }
+} else {
+  console.log("OPENZEPPELIN_CHANNELS_API_KEY is not set. Relayer transaction submissions will return instructions.");
+}
+
 // Load config
 let whisperContractId = "";
+let usdcContractId = "";
 function loadConfig() {
   if (fs.existsSync(DEPLOYED_PATH)) {
     try {
       const config = JSON.parse(fs.readFileSync(DEPLOYED_PATH, 'utf8'));
       if (config.whisperContractId && config.whisperContractId !== db.contractId) {
-        console.log(`Contract ID changed from "${db.contractId}" to "${config.whisperContractId}". Resetting indexer DB.`);
+        const oldContractId = db.contractId;
+        console.log(`Contract ID changed from "${oldContractId}" to "${config.whisperContractId}". Resetting indexer DB.`);
+        deleteSupabaseEvents(oldContractId).catch(err => console.error("Failed to clean up old contract events:", err));
         db.contractId = config.whisperContractId;
         db.lastSyncedLedger = 0;
         db.events = [];
-        saveDb();
+        saveStorage();
       }
       whisperContractId = config.whisperContractId;
+      usdcContractId = config.tokenContractId;
     } catch (e) {
       console.error("Failed to parse deployed.json:", e);
     }
@@ -182,7 +302,8 @@ function sanitizeEventForDb(ev) {
     ledger: ev.ledger,
     ledgerClosedAt: ev.ledgerClosedAt,
     contractId: whisperContractId,
-    txHash: ev.txHash
+    txHash: ev.txHash,
+    tokenAddress: ev.tokenAddress || ''
   };
 
   // Convert topic array of ScVal to array of base64 strings
@@ -206,6 +327,8 @@ function sanitizeEventForDb(ev) {
     } else {
       sanitized.value = typeof ev.value === 'string' ? ev.value : String(ev.value);
     }
+  } else {
+    sanitized.value = '';
   }
 
   return sanitized;
@@ -305,6 +428,9 @@ async function indexEvents() {
             console.error(`Failed to fetch TX details for hash ${ev.txHash}:`, txErr);
           }
           db.events.push(sanitized);
+          if (useSupabase) {
+            await saveSupabaseEvent(sanitized);
+          }
           newCount++;
         }
       }
@@ -312,7 +438,7 @@ async function indexEvents() {
     }
 
     db.lastSyncedLedger = latestLedger;
-    saveDb();
+    await saveStorage();
   } catch (e) {
     console.error("Error during indexing:", e);
   }
@@ -335,8 +461,67 @@ app.post('/api/reset', (req, res) => {
   console.log("Manual reset requested.");
   db.lastSyncedLedger = 0;
   db.events = [];
-  saveDb();
+  saveStorage();
   res.json({ success: true });
+});
+
+app.post('/api/faucet', async (req, res) => {
+  const { address } = req.body;
+  const adminSecret = process.env.ADMIN_SECRET_KEY;
+  if (!adminSecret) {
+    return res.status(400).json({ error: "ADMIN_SECRET_KEY not configured on server." });
+  }
+  if (!address) {
+    return res.status(400).json({ error: "Missing recipient address." });
+  }
+
+  loadConfig();
+  if (!usdcContractId) {
+    return res.status(400).json({ error: "USDC contract ID not found in deployed.json" });
+  }
+
+  try {
+    const adminKeypair = Keypair.fromSecret(adminSecret);
+    const adminPubKey = adminKeypair.publicKey();
+    const faucetAmount = parseInt(process.env.FAUCET_AMOUNT || "1000", 10);
+    const rawAmount = BigInt(faucetAmount * 10000000);
+
+    // Fund account with Friendbot if it doesn't exist yet
+    try {
+      await server.getAccount(address);
+    } catch {
+      console.log(`Funding ${address} via Friendbot...`);
+      const fbRes = await fetch(`https://friendbot.stellar.org/?addr=${address}`);
+      if (!fbRes.ok) {
+        return res.status(500).json({ error: "Friendbot funding failed." });
+      }
+    }
+
+    // Build and submit SAC mint transaction (admin is the issuer)
+    const account = await server.getAccount(adminPubKey);
+    const contract = new Contract(usdcContractId);
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: Networks.TESTNET
+    })
+    .addOperation(contract.call("mint",
+      nativeToScVal(address, { type: "address" }),
+      nativeToScVal(rawAmount, { type: "i128" })
+    ))
+    .setTimeout(30)
+    .build();
+
+    const preparedTx = await server.prepareTransaction(tx);
+    preparedTx.sign(adminKeypair);
+    const result = await server.sendTransaction(preparedTx);
+
+    console.log(`Faucet: minted ${faucetAmount} USDC to ${address}, tx=${result.hash}`);
+    return res.json({ success: true, hash: result.hash, amount: faucetAmount });
+  } catch (e) {
+    console.error("Faucet error:", e);
+    return res.status(500).json({ error: e.message || String(e) });
+  }
 });
 
 app.post('/api/relay', async (req, res) => {
@@ -373,15 +558,15 @@ app.post('/api/relay', async (req, res) => {
   }
 
   try {
-    console.log("⚡ Relaying Soroban transaction via OpenZeppelin Stellar Channels...");
+    console.log("Relaying Soroban transaction via OpenZeppelin Stellar Channels...");
     const result = await relayerClient.submitSorobanTransaction({
       func,
       auth: auth || []
     });
-    console.log(`✅ Relay successful! Transaction Hash: ${result.hash}`);
+    console.log(`Relay successful! Transaction Hash: ${result.hash}`);
     return res.json({ success: true, hash: result.hash });
   } catch (err) {
-    console.error("❌ Relay submission failed:", err);
+    console.error("Relay submission failed:", err);
     return res.status(500).json({
       error: "OpenZeppelin Channels relay failed",
       details: err.message || String(err)
@@ -411,13 +596,13 @@ async function migrateDbEvents() {
     }
   }
   if (updated) {
-    saveDb();
+    await saveStorage();
     console.log("[Migration] Database successfully migrated with token addresses.");
   }
 }
 
 // Start server and indexer
-loadDb();
+await loadStorage();
 app.listen(PORT, () => {
   console.log(`Stellar Whisper Indexer Server listening on port ${PORT}`);
   migrateDbEvents().then(() => {
