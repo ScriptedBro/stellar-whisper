@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { Config, ActivityLog } from './types';
-import { DEFAULT_CONFIG } from './config/constants';
+import { DEFAULT_CONFIG, INDEXER_URL } from './config/constants';
 import { useWallet } from './hooks/useWallet';
 import { useBalances } from './hooks/useBalances';
 import { useNotes } from './hooks/useNotes';
@@ -104,7 +104,7 @@ export default function App() {
     if (!wallet.userAddress) return;
     try {
       showToast("Requesting USDC from faucet...", "info");
-      const res = await fetch("http://localhost:8123/api/faucet", {
+      const res = await fetch(`${INDEXER_URL}/api/faucet`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ address: wallet.userAddress })

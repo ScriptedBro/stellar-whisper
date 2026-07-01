@@ -1,0 +1,19 @@
+type: web
+name: stellar-whisper-indexer
+env: node
+region: oregon
+plan: free
+buildCommand: npm install
+startCommand: node index.js
+healthCheckPath: /api/events
+envVars:
+  - key: PORT
+    value: "8123"
+  - key: SUPABASE_URL
+    sync: false
+  - key: SUPABASE_KEY
+    sync: false
+  - key: ADMIN_SECRET_KEY
+    sync: false
+  - key: OPENZEPPELIN_CHANNELS_API_KEY
+    sync: false

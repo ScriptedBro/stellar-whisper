@@ -1,4 +1,4 @@
-import { RPC_URL } from '../config/constants';
+import { RPC_URL, INDEXER_URL } from '../config/constants';
 import { useState, useCallback } from 'react';
 import { rpc, Contract, Account, TransactionBuilder, Networks } from '@stellar/stellar-sdk';
 import { 
@@ -53,7 +53,7 @@ export function useSorobanCall(whisperContractId: string) {
           setProvingProgress(65);
           addProvingLog("Dispatching transaction to OpenZeppelin Channels Relayer proxy...");
 
-          const response = await fetch("http://localhost:8123/api/relay", {
+          const response = await fetch(`${INDEXER_URL}/api/relay`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ func: hostFunctionXdr, auth: [] })

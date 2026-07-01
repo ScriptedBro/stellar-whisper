@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { scValToNative, xdr, rpc, Contract, Account, TransactionBuilder, Networks, nativeToScVal, Keypair } from '@stellar/stellar-sdk';
-import { DEFAULT_CONFIG, XLM_CONTRACT_ID, RPC_URL } from '../../config/constants';
+import { DEFAULT_CONFIG, XLM_CONTRACT_ID, RPC_URL, INDEXER_URL } from '../../config/constants';
 import { getOnChainZeroHash, computeLatestMerkleRootOnChain } from '../../lib/merkle';
 
 async function fetchOnChainTvl(
@@ -68,7 +68,7 @@ export function PoolStats({ selectedAsset }: PoolStatsProps) {
 
     const fetchStats = async () => {
       try {
-        const response = await fetch("http://localhost:8123/api/events");
+        const response = await fetch(`${INDEXER_URL}/api/events`);
         if (!response.ok) throw new Error("Indexer offline");
         const data = await response.json();
         
@@ -374,7 +374,7 @@ export function PoolStats({ selectedAsset }: PoolStatsProps) {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-[#cfc2d7]">Indexer URL:</span>
-                    <span className="text-white">http://localhost:8123</span>
+                    <span className="text-white">{INDEXER_URL}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-[#cfc2d7]">Sync Status:</span>

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { rpc, scValToNative, xdr, Contract, Account, TransactionBuilder, Networks, nativeToScVal } from '@stellar/stellar-sdk';
 import type { PrivateNote, ActivityLog } from '../types';
-import { XLM_CONTRACT_ID, RPC_URL, SUPABASE_URL, SUPABASE_ANON_KEY } from '../config/constants';
+import { XLM_CONTRACT_ID, RPC_URL, SUPABASE_URL, SUPABASE_ANON_KEY, INDEXER_URL } from '../config/constants';
 import { createClient } from '@supabase/supabase-js';
 import {
   deriveViewingKey, 
@@ -308,7 +308,7 @@ export function useNotes(
       if (!usedFallback) {
         try {
           if (!isSilent) setSyncProgress("Querying local indexer...");
-          const indexerResponse = await fetch("http://localhost:8123/api/events");
+          const indexerResponse = await fetch(`${INDEXER_URL}/api/events`);
           if (indexerResponse.ok) {
             const indexerData = await indexerResponse.json();
             if (indexerData.contractId === whisperContractId) {
